@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from app.services.accounts import AccountLedger
+from app.services.login_guard import LoginGuard
 
 
 security = HTTPBearer(auto_error=False)
@@ -48,6 +49,7 @@ def create_app(database_path=None):
     )
 
     ledger = AccountLedger(db_path)
+    login_guard = LoginGuard(ledger)
 
     def require_token(
         credentials: Annotated[
@@ -96,24 +98,37 @@ def create_app(database_path=None):
 
     @app.post("/api/v1/auth/login")
     def login(payload: LoginRequest):
-        try:
-            # Bound work before running password hashing.
-            if len(payload.password) > 1024:
-                raise ValueError("Invalid credentials")
+        email = payload.email
 
-            token = ledger.login(
-                payload.email, payload.password
+        if len(email) > 254 or len(payload.password) > 1024:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid credentials",
             )
-            return {
-                "access_token": token,
-                "token_type": "bearer",
-                "expires_in": 43200,
-            }
+
+        if not login_guard.allowed(email):
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Try again later.",
+                headers={"Retry-After": "900"},
+            )
+
+        try:
+            token = ledger.login(email, payload.password)
         except ValueError:
+            login_guard.failed(email)
             raise HTTPException(
                 status_code=401,
                 detail="Invalid credentials",
             ) from None
+
+        login_guard.succeeded(email)
+
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in": 43200,
+        }
 
     @app.post("/api/v1/auth/logout")
     def logout(token: str = Depends(require_token)):
