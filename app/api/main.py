@@ -1,4 +1,4 @@
-﻿import os
+import os
 from decimal import Decimal
 from typing import Annotated
 
@@ -61,7 +61,16 @@ def create_app(database_path=None):
                 detail="Authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return credentials.credentials
+        token = credentials.credentials
+
+        if not ledger.is_active_session(token):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired authentication token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return token
 
     def run_protected(operation):
         try:

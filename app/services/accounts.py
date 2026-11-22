@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import hmac
 import secrets
 import sqlite3
@@ -183,6 +183,29 @@ class AccountLedger(RepaymentLedger):
             )
 
         return row["role"]
+
+    def is_active_session(self, token):
+        """Check that a login token exists and has not expired."""
+        if not isinstance(token, str) or not token:
+            return False
+
+        if len(token) > 256:
+            return False
+
+        token_hash = hashlib.sha256(
+            token.encode("utf-8")
+        ).hexdigest()
+
+        with self.connect() as db:
+            row = db.execute(
+                """SELECT 1 FROM sessions s
+                   JOIN users u ON u.id = s.user_id
+                   WHERE s.token_hash = ?
+                     AND s.expires_at > ?""",
+                (token_hash, int(time.time())),
+            ).fetchone()
+
+        return row is not None
 
     def logout(self, token):
         if not isinstance(token, str) or not token:

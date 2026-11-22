@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -180,7 +180,7 @@ class TestProtectedAPI(unittest.TestCase):
             json={"name": "Another Customer"},
             headers=self.headers(self.token_a),
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":
