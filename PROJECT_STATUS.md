@@ -1,30 +1,29 @@
 ﻿# KudiLedger AI - Project Status
 
 ## Completed
-- Customer discovery: 10+ traders interviewed
-- Seven potential paying customers identified
-- Financial ledger exercise completed
-- Rule-based Python transaction engine working
-- Four automated tests passing
+- KLD-001: Git and engineering foundation
+- Four original transaction engine tests
+- KLD-002: Initial persistent SQLite ledger
+- Integer-kobo financial storage
+- Business and customer registration
+- Confirmed sale recording
+- Duplicate sale protection
+- Customer outstanding balance calculation
+- Seven database test cases
 
-## Active Milestone
-KLD-001: Development foundation and Git setup.
+## Active
+KLD-002: Final verification and review.
 
-## Next Milestone
-KLD-002: Persistent financial ledger using SQLite.
+## Next
+KLD-003: Debt repayments and transaction audit history.
 
-## Architecture
-- Python 3.13
-- SQLite for local development
-- PostgreSQL for production
-- FastAPI for backend APIs
-- WhatsApp integration planned
-- AI-assisted transaction extraction planned
+## Important Limitations
+- No user authentication yet
+- No production database deployment
+- No AI API integration yet
+- No WhatsApp connection yet
+- No debt repayment recording yet
+- No real customer data permitted in this prototype
 
-## Engineering Requirements
-- Accurate financial calculations
-- Transaction confirmation before saving
-- Separate business records
-- Secure credentials
-- Automated tests
-- Financial audit history
+## Engineering Rules
+See AGENTS.md.
