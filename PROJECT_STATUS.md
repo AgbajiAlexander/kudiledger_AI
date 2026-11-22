@@ -2,28 +2,33 @@
 
 ## Completed
 - KLD-001: Git and engineering foundation
-- Four original transaction engine tests
-- KLD-002: Initial persistent SQLite ledger
-- Integer-kobo financial storage
+- KLD-002: Persistent SQLite financial ledger
 - Business and customer registration
-- Confirmed sale recording
-- Duplicate sale protection
-- Customer outstanding balance calculation
-- Seven database test cases
+- Confirmed sales and balance calculation
+- KLD-003: Customer repayment functionality
+- Partial and full repayment handling
+- Duplicate repayment protection
+- Overpayment rejection
+- Repayment audit history
+- Cross-business data separation tests
 
 ## Active
-KLD-002: Final verification and review.
+KLD-003: Final verification and feature review
 
 ## Next
-KLD-003: Debt repayments and transaction audit history.
+KLD-004: Multi-business accounts and access control
 
 ## Important Limitations
-- No user authentication yet
-- No production database deployment
+- No production authentication yet
+- No real customer data permitted
+- No WhatsApp integration yet
 - No AI API integration yet
-- No WhatsApp connection yet
-- No debt repayment recording yet
-- No real customer data permitted in this prototype
+- No reversal or correction workflow yet
+- No customer-facing application yet
 
-## Engineering Rules
-See AGENTS.md.
+## Engineering Principles
+- Keep money in integer kobo
+- Require confirmation before saving
+- Preserve confirmed transaction history
+- Protect business data separation
+- Test every financial operation
