@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -93,6 +93,28 @@ class Ledger:
 
                 CREATE INDEX IF NOT EXISTS idx_sales_customer
                     ON sales(business_id, customer_id);
+
+                CREATE TRIGGER IF NOT EXISTS
+                    prevent_confirmed_sale_update
+                BEFORE UPDATE ON sales
+                WHEN OLD.status = 'CONFIRMED'
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'Confirmed sales cannot be updated'
+                    );
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS
+                    prevent_confirmed_sale_delete
+                BEFORE DELETE ON sales
+                WHEN OLD.status = 'CONFIRMED'
+                BEGIN
+                    SELECT RAISE(
+                        ABORT,
+                        'Confirmed sales cannot be deleted'
+                    );
+                END;
             """)
 
     def create_business(self, name):
