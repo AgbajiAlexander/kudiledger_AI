@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.accounts import AccountLedger
+from app.services.adjustments import AdjustmentLedger
 from app.services.login_guard import LoginGuard
 
 
@@ -37,6 +37,15 @@ class RepaymentRequest(BaseModel):
     confirmed: bool = False
 
 
+
+class AdjustmentRequest(BaseModel):
+    customer_id: str = Field(min_length=1)
+    reference: str = Field(min_length=1, max_length=100)
+    amount: str = Field(min_length=1, max_length=40)
+    reason: str = Field(min_length=10, max_length=500)
+    confirmed: bool = False
+
+
 def create_app(database_path=None):
     app = FastAPI(
         title="KudiLedger AI",
@@ -48,7 +57,7 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = AccountLedger(db_path)
+    ledger = AdjustmentLedger(db_path)
     login_guard = LoginGuard(ledger)
 
     def require_token(
@@ -233,6 +242,60 @@ def create_app(database_path=None):
                 token, business_id, customer_id
             )
         )
+        return [
+            {
+                **item,
+                "amount": str(
+                    item["amount"].quantize(Decimal("0.01"))
+                ),
+            }
+            for item in records
+        ]
+
+
+    @app.post(
+        "/api/v1/businesses/{business_id}/adjustments",
+        status_code=201,
+    )
+    def create_adjustment(
+        business_id: str,
+        payload: AdjustmentRequest,
+        token: str = Depends(require_token),
+    ):
+        adjustment_id = run_protected(
+            lambda: ledger.adjust_customer_balance(
+                token,
+                business_id,
+                payload.customer_id,
+                payload.reference,
+                payload.amount,
+                payload.reason,
+                confirmed=payload.confirmed,
+            )
+        )
+
+        return {
+            "id": adjustment_id,
+            "status": "CONFIRMED",
+        }
+
+    @app.get(
+        "/api/v1/businesses/{business_id}/customers/"
+        "{customer_id}/adjustments"
+    )
+    def list_adjustments(
+        business_id: str,
+        customer_id: str,
+        token: str = Depends(require_token),
+    ):
+        records = run_protected(
+            lambda: ledger.get_adjustments(
+                token,
+                business_id,
+                customer_id,
+            )
+        )
+
         return [
             {
                 **item,
