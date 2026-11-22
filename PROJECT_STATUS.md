@@ -1,34 +1,33 @@
 ﻿# KudiLedger AI - Project Status
 
 ## Completed
-- KLD-001: Git and engineering foundation
+- KLD-001: Development foundation
 - KLD-002: Persistent SQLite financial ledger
-- Business and customer registration
-- Confirmed sales and balance calculation
-- KLD-003: Customer repayment functionality
-- Partial and full repayment handling
-- Duplicate repayment protection
-- Overpayment rejection
-- Repayment audit history
-- Cross-business data separation tests
+- KLD-003: Debt repayments and audit protection
+- KLD-004: Local owner accounts and authorization foundation
 
-## Active
-KLD-003: Final verification and feature review
+## Verification
+- Automated tests for financial calculations
+- Sale and repayment persistence
+- Duplicate transaction rejection
+- Cross-business access protection
+- Password hashing
+- Session token verification
+- Logout and session revocation
 
 ## Next
-KLD-004: Multi-business accounts and access control
+KLD-005: FastAPI backend and protected HTTP endpoints
 
-## Important Limitations
-- No production authentication yet
-- No real customer data permitted
-- No WhatsApp integration yet
-- No AI API integration yet
-- No reversal or correction workflow yet
-- No customer-facing application yet
+## Not Yet Production Ready
+- Authentication rate limiting
+- Account recovery and email verification
+- Secure API session transport
+- Full authorization threat testing
+- PostgreSQL migration
+- Operational audit logging
+- Backup and disaster recovery
+- Real customer onboarding
+- WhatsApp and AI API integrations
 
-## Engineering Principles
-- Keep money in integer kobo
-- Require confirmation before saving
-- Preserve confirmed transaction history
-- Protect business data separation
-- Test every financial operation
+## Engineering Rules
+See AGENTS.md.
