@@ -4,7 +4,15 @@
 
 - `main` at `9142d46` contains KLD-001 through KLD-006A4B. The FastAPI application, SQLite ledger, trader dashboard and authenticated transaction lookup are already implemented. The 173-test baseline passed after allowing the test runner to access Windows temporary directories.
 - KLD-006B0 stabilization merged into `main` at `86ecd96`.
-- KLD-006B1 Africa/Lagos reporting is on `feature/KLD-006B1-lagos-reporting` for owner and technical review.
+- KLD-006B1 Africa/Lagos reporting merged into `main` at `9547e35`.
+- KLD-006B2 secure transaction receipts is on `feature/KLD-006B2-secure-receipts` for owner and technical review.
+
+## KLD-006B2 receipts
+
+- Authenticated, business-scoped read-only receipts are available by type and ID or reference. The API uses committed amounts, explicit UTC and Lagos timestamps, and a flag indicating that external payment verification has not been performed.
+- The dashboard offers a receipt after a confirmed save or recovery and can reopen earlier receipts by type and reference. Printing rechecks access and isolates the receipt with A4 and narrow-roll layouts.
+- Receipts read business and customer names from the directory at retrieval time. Those names can differ from the names in use on the transaction date.
+- Tests cover authorization and expiry, missing and duplicate references, exact naira amounts, UTC-to-Lagos rollover, reversed sales, browser rendering and print invocation. Printer hardware and mobile print dialogs still need manual verification.
 
 ## KLD-006B1 reporting
 
@@ -27,8 +35,8 @@
 - In-memory recovery cannot guarantee duplicate prevention across reloads, closed tabs or separate devices when a merchant enters a new reference. The unique database constraint protects a repeated reference within its business and type. Browser navigation prompts are best effort. Persistent recovery and an operator workflow belong to KLD-006B4.
 - The browser test uses mocked API responses. Physical Android devices and combined live-server/browser response interruption remain unverified. Authentication, financial persistence and lost-response API semantics have separate integration coverage.
 - SQLite write contention under sustained load, cumulative integer aggregate limits and extreme-volume reporting have not been load-tested. Process logs, reverse-proxy configuration, rate limits across identities, recovery workflows and secure session handling need review before pilot deployment.
-- Registration is local service provisioning. Account verification, password recovery, receipt printing, production deployment, PostgreSQL migration, WhatsApp integration and AI-assisted entry remain future work.
+- Registration is local service provisioning. Account verification, password recovery, production deployment, PostgreSQL migration, WhatsApp integration and AI-assisted entry remain future work.
 
 ## Next milestone after review
 
-KLD-006B2 adds printable receipts backed by committed, business-authorized records. See [README.md](README.md) for startup, configuration, demo and verification commands.
+KLD-006B3 improves the mobile trader workflow. See [README.md](README.md) for startup, configuration, receipt demo and verification commands.

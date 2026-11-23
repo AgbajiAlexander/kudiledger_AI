@@ -127,51 +127,45 @@ class ReportLedger(ExpenseLedger):
         }
 
 
-    def lookup_transaction(
-        self, token, business_id, kind, reference
-    ):
-        """Look up an existing business transaction by reference."""
-        self._authorize(token, business_id)
-
-        if kind not in ("sale", "repayment", "expense"):
+    def _find_transaction(self, business_id, kind, identifier, *, by_id=False):
+        # Identifiers in SQL come only from these fixed transaction definitions.
+        definitions = {
+            "sale": ("sales", "sale_reference", "t.customer_id, t.total_kobo, t.paid_kobo",
+                     "AND t.status = 'CONFIRMED'"),
+            "repayment": ("repayments", "repayment_reference", "t.customer_id, t.amount_kobo", ""),
+            "expense": ("expenses", "expense_reference", "t.category, t.description, t.amount_kobo", ""),
+        }
+        if kind not in definitions:
             raise ValueError("Invalid transaction type")
 
-        if (
-            not isinstance(reference, str)
-            or not 1 <= len(reference.strip()) <= 100
-        ):
+        table, reference, fields, condition = definitions[kind]
+        column = "id" if by_id else reference
+        customer = "NULL" if kind == "expense" else "t.customer_id"
+        with self.connect() as db:
+            return db.execute(
+                f"""SELECT t.id, t.{reference} AS reference, t.created_at, {fields},
+                           b.name AS business_name, c.name AS customer_name,
+                           EXISTS (
+                               SELECT 1 FROM sale_reversals r
+                               WHERE r.business_id = t.business_id AND r.sale_id = t.id
+                           ) AS reversed
+                    FROM {table} t
+                    JOIN businesses b ON b.id = t.business_id
+                    LEFT JOIN customers c ON c.business_id = t.business_id AND c.id = {customer}
+                    WHERE t.business_id = ? AND t.{column} = ? {condition}""",
+                (business_id, identifier),
+            ).fetchone()
+
+    def lookup_transaction(self, token, business_id, kind, reference):
+        """Look up an existing business transaction by reference."""
+        self._authorize(token, business_id)
+        if kind not in ("sale", "repayment", "expense"):
+            raise ValueError("Invalid transaction type")
+        if not isinstance(reference, str) or not 1 <= len(reference.strip()) <= 100:
             raise ValueError("Invalid transaction reference")
 
         reference = reference.strip()
-
-        queries = {
-            "sale": """
-                SELECT id, customer_id, sale_reference AS reference,
-                       total_kobo, paid_kobo, created_at
-                FROM sales
-                WHERE business_id = ? AND sale_reference = ?
-            """,
-            "repayment": """
-                SELECT id, customer_id,
-                       repayment_reference AS reference,
-                       amount_kobo, created_at
-                FROM repayments
-                WHERE business_id = ? AND repayment_reference = ?
-            """,
-            "expense": """
-                SELECT id, expense_reference AS reference,
-                       category, description,
-                       amount_kobo, created_at
-                FROM expenses
-                WHERE business_id = ? AND expense_reference = ?
-            """,
-        }
-
-        with self.connect() as db:
-            row = db.execute(
-                queries[kind],
-                (business_id, reference),
-            ).fetchone()
+        row = self._find_transaction(business_id, kind, reference)
 
         if row is None:
             return {
@@ -209,3 +203,47 @@ class ReportLedger(ExpenseLedger):
 
         return result
 
+
+    def transaction_receipt(self, token, business_id, kind, transaction_id, reference):
+        """Read a receipt for a committed transaction owned by this business."""
+        self._authorize(token, business_id)
+        if (transaction_id is None) == (reference is None):
+            raise ValueError("Provide either transaction_id or reference")
+        by_id = transaction_id is not None
+        identifier = (transaction_id if by_id else reference).strip()
+        if not 1 <= len(identifier) <= 100:
+            raise ValueError("Invalid transaction identifier")
+        row = self._find_transaction(business_id, kind, identifier, by_id=by_id)
+        if row is None:
+            return None
+
+        recorded = datetime.fromisoformat(row["created_at"])
+        if recorded.tzinfo is None:
+            # SQLite CURRENT_TIMESTAMP stores UTC without an offset suffix.
+            recorded = recorded.replace(tzinfo=timezone.utc)
+        recorded_utc = recorded.astimezone(timezone.utc)
+        amount = row["total_kobo"] if kind == "sale" else row["amount_kobo"]
+        receipt = {
+            "id": row["id"],
+            "kind": kind,
+            "reference": row["reference"],
+            "business_name": row["business_name"],
+            "currency": "NGN",
+            "amount": f"{from_kobo(amount):.2f}",
+            "recorded_at_utc": recorded_utc.isoformat(),
+            "recorded_at_local": recorded_utc.astimezone(LAGOS).isoformat(),
+            "timezone": LAGOS.key,
+            "external_payment_verified": False,
+        }
+        if kind == "sale":
+            receipt.update(
+                customer_name=row["customer_name"],
+                paid_at_sale=f"{from_kobo(row['paid_kobo']):.2f}",
+                due_at_sale=f"{from_kobo(amount - row['paid_kobo']):.2f}",
+                reversed=bool(row["reversed"]),
+            )
+        elif kind == "repayment":
+            receipt["customer_name"] = row["customer_name"]
+        else:
+            receipt.update(category=row["category"], description=row["description"])
+        return receipt

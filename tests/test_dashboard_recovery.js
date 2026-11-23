@@ -7,6 +7,7 @@
   const directory = [];
   let post = () => ({});
   let lookup = () => { throw new Error("Unexpected lookup"); };
+  let fetchReceipt = () => { throw new Error("Unexpected receipt request"); };
   const report = {
     gross_sales: "250.01",
     recorded_cash_received: "100",
@@ -38,6 +39,9 @@
       return response({ customers: directory });
     }
     if (path.includes("/transactions/lookup")) return lookup(path);
+    if (path.includes("/receipts?")) {
+      return fetchReceipt(new URLSearchParams(path.split("?")[1]));
+    }
     if (path.endsWith("/expenses") && method === "GET") return response([]);
     return post(body);
   };
@@ -98,7 +102,7 @@
     reference: "EXP-1", category: "Transport", description: "Delivery", amount: "40"
   };
 
-  post = () => response({}, 201);
+  post = body => response({ id: body.reference + "-committed" }, 201);
   for (const [form, values] of [[sale, saleValues], [repayment, repaymentValues],
                                 [expense, expenseValues]]) {
     enter(form, values);
@@ -127,6 +131,113 @@
   }
   assert(money("89999999999999.99").endsWith(".99"), "exact kobo formatting");
 
+  const search = $("receipt-search");
+  const panel = $("receipt-panel");
+  const receiptCalls = () => calls.filter(call => call.path.includes("/receipts?"));
+  const authoritative = {
+    business_name: "Authoritative <Shop>", reference: "REC / #1",
+    recorded_at_utc: "2024-02-28T23:00:00+00:00",
+    amount: "89999999999999.99", paid_at_sale: "0.01", due_at_sale: "89999999999999.98",
+    customer_name: "<Musa>", category: "Transport", description: "Market delivery"
+  };
+  fetchReceipt = query => response({ ...authoritative, kind: query.get("kind") });
+  for (const [form, kind, reference] of [
+    [sale, "sale", saleValues.reference],
+    [repayment, "repayment", repaymentValues.reference],
+    [expense, "expense", expenseValues.reference]
+  ]) {
+    const view = [...form.querySelectorAll("button")].find(item =>
+      item.textContent === "View Receipt");
+    assert(!view.hidden, kind + " receipt available after confirmed write");
+    view.click();
+    await tick();
+    const request = receiptCalls().at(-1);
+    assert(request.method === "GET" && request.options.cache === "no-store" &&
+      request.options.headers.Authorization.startsWith("Bearer "), "authenticated receipt GET");
+    assert(request.path.endsWith("kind=" + kind + "&transaction_id=" + reference + "-committed"),
+      "receipt lookup uses saved ID");
+    assert(!panel.hidden && panel.textContent.includes("₦89,999,999,999,999.99"),
+      "receipt uses exact authoritative amount");
+    assert(panel.textContent.includes("Authoritative <Shop>") && !panel.querySelector("shop"),
+      "receipt displays business as text");
+    assert(panel.textContent.includes("29 Feb 2024") && panel.textContent.includes("00:00:00"),
+      "receipt renders Nigeria date and time");
+    assert(panel.textContent.includes("has not verified an external payment"), "verification notice");
+    assert(panel.getBoundingClientRect().width <= window.innerWidth, "mobile receipt fits");
+    $("receipt-close").click();
+    assert(panel.hidden && document.activeElement === view, "close restores focus");
+  }
+
+  enter(search, { kind: "sale", reference: authoritative.reference });
+  submit(search);
+  await tick();
+  assert(decodeURIComponent(receiptCalls().at(-1).path.replace(/\+/g, " "))
+    .endsWith("reference=REC / #1"), "search uses URL-encoded reference");
+  assert(!panel.classList.contains("print-authorized"), "view alone does not enable printing");
+  let prints = 0;
+  window.print = () => {
+    assert(!panel.hidden && panel.classList.contains("narrow") === (prints === 0),
+      "selected print layout applied");
+    assert(panel.classList.contains("print-authorized"), "print enabled after fresh lookup");
+    assert(panel.textContent.includes("900.00"), "print uses freshly authorized receipt data");
+    prints++;
+    window.dispatchEvent(new Event("afterprint"));
+  };
+  $("receipt-paper").value = "narrow";
+  fetchReceipt = () => response({ ...authoritative, kind: "sale", amount: "900.00" });
+  const beforePrint = receiptCalls().length;
+  $("receipt-print").click();
+  await tick();
+  assert(prints === 1 && receiptCalls().length === beforePrint + 1, "print rechecks access");
+  $("receipt-paper").value = "a4";
+  $("receipt-print").click();
+  await tick();
+  assert(prints === 2 && receiptCalls().length === beforePrint + 2, "A4 print rechecks access");
+  assert(!panel.classList.contains("print-authorized"), "print permission clears after print");
+
+  function assertNoStalePrint(label) {
+    assert(panel.hidden && !$("receipt-details").textContent &&
+      !$("receipt-business").textContent && !panel.classList.contains("print-authorized"),
+      label + " clears receipt");
+    const requests = receiptCalls().length;
+    $("receipt-print").click();
+    assert(prints === 2 && receiptCalls().length === requests, label + " blocks stale print");
+  }
+
+  $("receipt-close").click();
+  assertNoStalePrint("closing receipt");
+  submit(search);
+  await tick();
+  assert(!panel.hidden, "closed receipt can be reopened");
+  fetchReceipt = () => rejected(404);
+  $("receipt-print").click();
+  await tick();
+  assert(messageText() === "Receipt not found.", "print lookup failure feedback");
+  assertNoStalePrint("failed print lookup");
+
+  fetchReceipt = () => response({ ...authoritative, kind: "sale" });
+  submit(search);
+  await tick();
+  assert(!panel.hidden, "receipt available before session expires");
+  fetchReceipt = () => rejected(404);
+  enter(search, { kind: "sale", reference: "MISSING" });
+  submit(search);
+  await tick();
+  assert(messageText() === "Receipt not found.", "missing receipt feedback");
+  assertNoStalePrint("failed receipt search");
+
+  fetchReceipt = () => response({ ...authoritative, kind: "sale" });
+  enter(search, { kind: "sale", reference: authoritative.reference });
+  submit(search);
+  await tick();
+  assert(!panel.hidden, "receipt available before expired print attempt");
+  fetchReceipt = () => rejected(401);
+  $("receipt-print").click();
+  await tick();
+  assert($("dashboard").hidden, "expired session returns to sign-in");
+  assertNoStalePrint("expired session");
+  await signIn("owner@example.test");
+
   const miss = { found: false, kind: "sale", reference: "SALE-1" };
   for (const status of [400, 422]) {
     post = () => rejected(status);
@@ -152,7 +263,7 @@
   let loseResponse;
   let saved;
   post = body => {
-    saved = { ...body, found: true, kind: "sale" };
+    saved = { ...body, found: true, kind: "sale", id: "recovered-sale" };
     return new Promise((_, reject) => { loseResponse = reject; });
   };
   lookup = () => response(miss);
@@ -202,6 +313,8 @@
   assert(lookups().every(call => call.method === "GET" && call.options.cache === "no-store"),
     "lookups use fresh GETs");
   assert(!guardNavigation(), "navigation allowed after verification");
+  assert([...sale.querySelectorAll("button")].some(item =>
+    item.textContent === "View Receipt" && !item.hidden), "recovery offers a receipt");
 })().then(
   () => parent.postMessage("PASS", "*"),
   error => parent.postMessage(error.stack || String(error), "*")
