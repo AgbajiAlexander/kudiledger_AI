@@ -28,8 +28,19 @@ class TestDashboardRecovery(unittest.TestCase):
         test_script = Path(__file__).with_suffix(".js").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            clock = """
+                <script>
+                const RealDate = Date;
+                Date = class extends RealDate {
+                  constructor(...args) {
+                    super(...(args.length ? args : ["2024-02-28T23:00:00Z"]));
+                  }
+                };
+                </script>
+            """
             (root / "dashboard.html").write_text(
-                page.replace("</body>", f"<script>{test_script}</script></body>"),
+                page.replace("<script>", clock + "<script>", 1)
+                    .replace("</body>", f"<script>{test_script}</script></body>"),
                 encoding="utf-8",
             )
             driver = root / "driver.html"

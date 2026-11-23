@@ -1,12 +1,12 @@
-﻿import tempfile
+import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
-from app.services.reports import ReportLedger
+from app.services.reports import LAGOS, ReportLedger
 
 
 class TestDailyReportAPI(unittest.TestCase):
@@ -44,9 +44,7 @@ class TestDailyReportAPI(unittest.TestCase):
         self.customer = self.ledger.add_customer(
             self.token, self.business, "Musa"
         )
-        self.today = datetime.now(
-            timezone.utc
-        ).date().isoformat()
+        self.today = datetime.now(LAGOS).date().isoformat()
 
     def url(self, business=None, day=None):
         business = business or self.business
@@ -70,13 +68,16 @@ class TestDailyReportAPI(unittest.TestCase):
 
     def test_empty_day_report(self):
         response = self.client.get(
-            self.url(), headers=self.headers()
+            self.url(day="2024-02-29"), headers=self.headers()
         )
         self.assertEqual(response.status_code, 200)
         result = response.json()
         self.assertEqual(result["gross_sales"], "0")
         self.assertEqual(result["recorded_cash_received"], "0")
-        self.assertEqual(result["timezone"], "UTC")
+        self.assertEqual(result["date"], "2024-02-29")
+        self.assertEqual(result["timezone"], "Africa/Lagos")
+        self.assertEqual(result["period_start_utc"], "2024-02-28T23:00:00+00:00")
+        self.assertEqual(result["period_end_utc"], "2024-02-29T23:00:00+00:00")
 
     def test_credit_sale_and_cash_are_separate(self):
         self.sale()

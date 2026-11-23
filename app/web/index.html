@@ -86,7 +86,7 @@ th, td {
   font-size: 14px;
 }
 th:last-child, td:last-child { text-align: right; }
-.empty { font-size: 14px; color: #7b8580; }\n
+.empty { font-size: 14px; color: #7b8580; }
 select {
   display: block;
   width: 100%;
@@ -139,9 +139,10 @@ form.panel label { margin-bottom: 12px; }
 <section id="dashboard" hidden>
   <div class="panel">
     <h1>Business overview</h1>
-    <p>View sales, recorded receipts, expenses and customer debts.</p>
+    <p>Sales, recorded receipts and expenses reflect the selected day.
+      Current customer debts include activity across all dates.</p>
     <div class="fields">
-      <label>Reporting date (UTC)
+      <label>Reporting date (Nigeria time)
         <input type="date" id="report-date">
       </label>
     </div>
@@ -766,7 +767,16 @@ connectForm(
     money(payload.amount) + "?"
 );
 
-$("report-date").value = new Date().toISOString().slice(0, 10);
+const lagosCalendar = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Lagos",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit"
+});
+const { year, month, day } = Object.fromEntries(
+  lagosCalendar.formatToParts(new Date()).map(({ type, value }) => [type, value])
+);
+$("report-date").value = [year, month, day].join("-");
 $("refresh").addEventListener("click", refreshDashboard);
 
 $("login-form").addEventListener("submit", async event => {

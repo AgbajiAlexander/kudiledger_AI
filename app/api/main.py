@@ -476,6 +476,7 @@ def create_app(database_path=None):
         report_date: str,
         token: str = Depends(require_token),
     ):
+        """Return activity for an Africa/Lagos date and current outstanding debt."""
         if len(report_date) > 32:
             raise HTTPException(
                 status_code=400,

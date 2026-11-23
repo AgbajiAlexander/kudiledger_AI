@@ -3,7 +3,14 @@
 ## Current checkpoint
 
 - `main` at `9142d46` contains KLD-001 through KLD-006A4B. The FastAPI application, SQLite ledger, trader dashboard and authenticated transaction lookup are already implemented. The 173-test baseline passed after allowing the test runner to access Windows temporary directories.
-- KLD-006B0 stabilization is on `feature/KLD-006B0-stabilization` for owner and technical review. Keep the review gate before merging or starting KLD-006B1.
+- KLD-006B0 stabilization merged into `main` at `86ecd96`.
+- KLD-006B1 Africa/Lagos reporting is on `feature/KLD-006B1-lagos-reporting` for owner and technical review.
+
+## KLD-006B1 reporting
+
+- Daily sales, repayments, expenses and reversals use the interval between consecutive Africa/Lagos midnights, converted to UTC. The API returns the Lagos date and timezone plus explicit UTC bounds. Current outstanding debt remains the balance across all dates.
+- Existing SQLite records retain their original UTC timestamps. No schema or data migration is required. Install the updated requirements for IANA timezone data on Windows.
+- Regression cases cover 22:59:59, 23:00:00 and 23:00:01 UTC across month-end, year-end and leap-day transitions. The browser test checks the default at Lagos midnight and the customer-select styling.
 
 ## KLD-006B0 audit
 
@@ -24,4 +31,4 @@
 
 ## Next milestone after review
 
-KLD-006B1 adds Africa/Lagos reporting dates and midnight-boundary tests while preserving UTC audit timestamps. See [README.md](README.md) for startup, configuration, demo and verification commands.
+KLD-006B2 adds printable receipts backed by committed, business-authorized records. See [README.md](README.md) for startup, configuration, demo and verification commands.
