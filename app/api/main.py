@@ -160,12 +160,21 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
                 response = JSONResponse({"detail": "Request could not be completed"}, status_code=500)
         route = getattr(request.scope.get("route"), "path", None) or "unmatched"
         status = response.status_code
-        if status >= 500 and request.method == "POST" and route in financial_posts:
-            await run_in_threadpool(ledger.note_failed_write)
+        financial = {}
+        if request.method == "POST" and route in financial_posts:
+            if status >= 500:
+                await run_in_threadpool(ledger.note_failed_write)
+                financial["financial_outcome"] = "operational_failure"
+            elif status in (400, 409, 422):
+                financial["financial_outcome"] = "request_rejected"
+            else:
+                outcome = getattr(request.state, "financial_outcome", None)
+                if outcome:
+                    financial["financial_outcome"] = outcome
         if route != "/health" or status >= 400:
             event("http_request", request_id=request_id, route=route,
                   method=request.method if request.method in ("GET", "POST", "DELETE", "HEAD") else "other",
-                  status=status, elapsed_ms=round((time.monotonic() - started) * 1000))
+                  status=status, elapsed_ms=round((time.monotonic() - started) * 1000), **financial)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
@@ -281,6 +290,7 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
             )
 
     def send_password_reset(email):
+        token = None
         try:
             if mail.permits(email):
                 token = ledger.request_password_reset(email)
@@ -288,6 +298,11 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
                     mail.send("reset", email, token)
         except Exception:
             event("account_mail_delivery_failed", purpose="reset")
+            if token:
+                try:
+                    ledger.fail_account_link_delivery("reset", token)
+                except Exception:
+                    event("account_mail_audit_unavailable", purpose="reset")
 
     @app.post("/api/v1/auth/password-reset", status_code=202)
     def start_password_reset(payload: PasswordResetRequest, request: Request, tasks: BackgroundTasks):
@@ -714,11 +729,14 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
 
     @app.post(recovery_path + "/{attempt_id}/submit")
     def submit_recovery(
-        business_id: str, attempt_id: str, response: Response,
+        business_id: str, attempt_id: str, response: Response, request: Request,
         token: str = Depends(require_token),
     ):
         response.headers["Cache-Control"] = "no-store"
-        return run_protected(lambda: ledger.submit_recovery(token, business_id, attempt_id))
+        result = run_protected(lambda: ledger.submit_recovery(token, business_id, attempt_id))
+        if result["status"] in ("rejected", "conflict"):
+            request.state.financial_outcome = "request_rejected"
+        return result
 
     @app.post(recovery_path + "/{attempt_id}/check")
     def check_recovery(

@@ -114,3 +114,7 @@ See the [architecture decision](docs/pilot-architecture.md) for the transaction 
 The default local setup uses existing trusted test registration. The supervised pilot uses the staging host invitation command and locally captured `.test` email. An invitation verifies inbox access before creating the account. Password reset is available from **Forgot password?** and signs out existing sessions when a reset completes.
 
 Use [staging architecture](docs/staging-architecture.md) for hosting costs, the Linux service configuration and approved TLS setup. See [supervised pilot acceptance and operations](docs/supervised-pilot.md) for synthetic email configuration, test commands, retention, monitoring, manual Android checks and the go/no-go checklist. Keep any real provider deployment and email delivery behind the review gate.
+
+## Release candidate review
+
+See the [release candidate notes](docs/release-candidate.md) for the version manifest, CI gate, rollback procedure, recovery targets and readiness matrix. The [product-owner demo](docs/release-demo.md) includes a repeatable synthetic journey, mobile and desktop screenshots, and a receipt print render.

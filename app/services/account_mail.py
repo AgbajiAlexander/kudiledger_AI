@@ -14,7 +14,9 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 def private_path(value):
     path = Path(value).resolve(strict=True)
     if path.is_relative_to(REPOSITORY):
-        raise ValueError("Mail capture and credentials must be kept outside the repository")
+        raise ValueError("Private staging files must be kept outside the repository")
+    if os.name == "posix" and path.stat().st_mode & 0o077:
+        raise ValueError("Private staging files and directories must deny group and other access")
     return path
 
 

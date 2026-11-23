@@ -53,4 +53,10 @@ def operational_counts(db):
            WHERE stage IN ('sending', 'saved', 'conflict')
            AND created_at <= datetime('now', '-30 minutes')"""
     ).fetchone()[0]
-    return {"failed_financial_writes_15m": failed, "unresolved_over_30m": unresolved}
+    mail_failed = db.execute(
+        """SELECT count(*) FROM account_security_audit
+           WHERE event = 'account_link_delivery_failed' AND created_at > ?""",
+        (int(time.time()) - 900,),
+    ).fetchone()[0]
+    return {"failed_financial_writes_15m": failed, "unresolved_over_30m": unresolved,
+            "account_mail_failures_15m": mail_failed}

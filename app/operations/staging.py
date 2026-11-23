@@ -11,7 +11,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, build_opener
 from uuid import uuid4
 
 from app.operations.pilot import backup_database
-from app.services.account_mail import AccountMail
+from app.services.account_mail import AccountMail, private_path
 from app.services.telemetry import StagingLedger, operational_counts
 
 
@@ -21,7 +21,12 @@ def invite(database, email, business, mail):
         raise ValueError("Email delivery is disabled for this recipient")
     ledger = StagingLedger(Path(database).resolve(strict=True))
     token = ledger.create_invite(email, business)
-    mail.send("invite", email, token)
+    try:
+        mail.send("invite", email, token)
+    except Exception:
+        ledger.fail_account_link_delivery("invite", token)
+        raise RuntimeError("Invitation delivery failed") from None
+    ledger.confirm_invite_delivery(token)
 
 
 class RejectRedirects(HTTPRedirectHandler):
@@ -55,12 +60,14 @@ def monitor(database, origin, ca_file=None):
         alerts.append("failed_financial_writes")
     if counts.get("unresolved_over_30m", 0) >= 1:
         alerts.append("old_unresolved_recovery")
+    if counts.get("account_mail_failures_15m", 0) >= 1:
+        alerts.append("account_mail_delivery")
     return {"event": "pilot_monitor", "available": healthy, **counts, "alerts": alerts}
 
 
 def scheduled_backup(database, directory):
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    filename = Path(directory) / f"snapshot-{timestamp}-{uuid4().hex[:8]}.sqlite"
+    filename = private_path(directory) / f"snapshot-{timestamp}-{uuid4().hex[:8]}.sqlite"
     result = backup_database(database, filename)
     with os.fdopen(os.open(filename.with_suffix(".sha256"),
                           os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="ascii") as file:

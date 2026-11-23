@@ -22,6 +22,7 @@ The database security audit records invitation issuance, email verification, res
 | Three HTTP 5xx responses on financial write routes within 15 minutes | Pause the affected workflow after checking the journal and database health. | Technical operator |
 | At least one unresolved or conflicting recovery older than 30 minutes | Investigate the reference with the restricted operator workflow. | Recovery operator |
 | Nightly backup missing or invalid | Investigate before the next session and confirm the latest usable restore point. | Backup custodian |
+| At least one failed account-link delivery in 15 minutes | Check the approved mail transport and advise the trader to use their previous valid link. Reissue through the protected channel if needed. | Pilot operator |
 
 The two-minute monitor timer runs the HTTPS probe and SQLite counts. It prints JSON and exits nonzero on threshold breach. Connect failed units or the log stream to an approved alert destination before the pilot. Configure an independent availability probe, because the on-host timer cannot report host loss. The app logs fixed route templates, method, status, elapsed time and a generated request ID. It excludes bodies, raw URLs, headers, account values and exception strings. Uvicorn access logging is disabled in the unit and Caddy omits request fields from its error logs. Provider and host logging still need review on the deployment target.
 

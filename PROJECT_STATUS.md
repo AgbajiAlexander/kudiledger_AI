@@ -9,7 +9,15 @@
 - KLD-006B3 mobile trader experience merged into `main` at `4fef013`.
 - KLD-006B4 persistent transaction recovery merged into `main` at `4bda1f7`.
 - KLD-006B5 pilot safety merged into `main` at `48860c1`.
-- KLD-006C0 deployment readiness is on `feature/KLD-006C0-deployment-readiness` for independent review.
+- KLD-006C0 deployment readiness merged into `main` at `c1aa57c`.
+- KLD-006C1 release candidate is on `feature/KLD-006C1-release-candidate` for independent review.
+
+## KLD-006C1 release validation
+
+- CI runs the full synthetic suite, local TLS and browser checks, systemd verification and package and private-file checks. The exact commit must pass the `release-gate` job before release.
+- Failed deliveries leave working links usable and raise a redacted alert. Expected financial rejections stay outside the operational failure counter. Isolated restoration preserves account and operator audit records while clearing old sessions and outstanding links.
+- The [candidate notes](docs/release-candidate.md) and [synthetic demo](docs/release-demo.md) record the dependency set, rollback, recovery targets, review evidence and open approval gates.
+- Local verification on 23 November 2026 passed 219 tests in 141.049 seconds with zero failures, errors or skips. The release dependency scan reported no known package vulnerabilities. Caddy, Ubuntu systemd verification, JavaScript syntax and Python dependency consistency checks also passed.
 
 ## KLD-006C0 supervised staging
 

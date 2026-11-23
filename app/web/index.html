@@ -1233,12 +1233,16 @@ $("account-link-form").addEventListener("submit", async event => {
   }
 });
 
-const linkMatch = /^#(invite|reset)=([A-Za-z0-9_-]{43})$/.exec(location.hash);
-if (linkMatch) {
+function loadAccountLink() {
+  const linkMatch = /^#(invite|reset)=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+  if (!linkMatch) return;
+  if (accessToken) clearSession();
   accountLink = { purpose: linkMatch[1], token: linkMatch[2] };
   history.replaceState(null, "", location.pathname + location.search);
   showAuth("link");
 }
+loadAccountLink();
+window.addEventListener("hashchange", loadAccountLink);
 
 $("login-form").addEventListener("submit", async event => {
   event.preventDefault();
