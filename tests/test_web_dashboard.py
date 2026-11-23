@@ -1,4 +1,4 @@
-﻿import tempfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -23,7 +23,8 @@ class TestTraderDashboard(unittest.TestCase):
     def test_dashboard_has_login_form(self):
         response = self.client.get("/app")
         self.assertIn('id="login-form"', response.text)
-        self.assertIn('id="business-id"', response.text)
+        self.assertNotIn('id="business-id"', response.text)
+        self.assertIn('/api/v1/auth/businesses', response.text)
 
     def test_dashboard_has_reporting_sections(self):
         response = self.client.get("/app")

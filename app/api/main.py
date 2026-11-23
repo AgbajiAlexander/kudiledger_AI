@@ -490,6 +490,15 @@ def create_app(database_path=None):
             headers={"Cache-Control": "no-store"},
         )
 
+
+    @app.get("/api/v1/auth/businesses")
+    def get_my_businesses(
+        token: str = Depends(require_token),
+    ):
+        return run_protected(
+            lambda: ledger.list_my_businesses(token)
+        )
+
     return app
 
 

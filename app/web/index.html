@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -115,10 +115,6 @@ th:last-child, td:last-child { text-align: right; }
       <label>Password
         <input id="password" type="password"
                autocomplete="current-password" required>
-      </label>
-      <label>Business ID
-        <input id="business-id" type="text" required
-               placeholder="Your registered business ID">
       </label>
     </div>
     <div class="actions">
@@ -286,7 +282,6 @@ $("login-form").addEventListener("submit", async event => {
   button.disabled = true;
   message("");
   try {
-    businessId = $("business-id").value.trim();
     const result = await api("/api/v1/auth/login", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -297,6 +292,19 @@ $("login-form").addEventListener("submit", async event => {
     });
     accessToken = result.access_token;
     $("password").value = "";
+
+    const businesses = await api("/api/v1/auth/businesses");
+
+    if (businesses.length !== 1) {
+      accessToken = null;
+      throw new Error(
+        businesses.length === 0
+          ? "No business is linked to this account."
+          : "This account has multiple businesses; selection is not yet available."
+      );
+    }
+
+    businessId = businesses[0].id;
     $("login-panel").hidden = true;
     $("dashboard").hidden = false;
     await refreshDashboard();
