@@ -10,7 +10,8 @@
 - KLD-006B4 persistent transaction recovery merged into `main` at `4bda1f7`.
 - KLD-006B5 pilot safety merged into `main` at `48860c1`.
 - KLD-006C0 deployment readiness merged into `main` at `c1aa57c`.
-- KLD-006C1 release candidate is on `feature/KLD-006C1-release-candidate` for independent review.
+- KLD-006C1 release candidate merged into `main` at `c3344c6`. The merged release gate passed.
+- KLD-006C2 is prepared on `feature/KLD-006C2-pilot-commissioning` for independent review and owner acceptance. [Verification and manifest](docs/commissioning-manifest.md) · [Synthetic acceptance](docs/commissioning-acceptance.md) · [Pilot decision](docs/commissioning-plan.md)
 
 ## KLD-006C1 release validation
 
