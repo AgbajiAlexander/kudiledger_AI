@@ -99,6 +99,8 @@ class RepaymentLedger(Ledger):
         reference,
         amount_naira,
         confirmed=False,
+        *,
+        _db=None,
     ):
         if confirmed is not True:
             raise ValueError(
@@ -117,10 +119,7 @@ class RepaymentLedger(Ledger):
 
         repayment_id = str(uuid4())
 
-        with self.connect() as db:
-            # Serialize financial writes in this SQLite database.
-            db.execute("BEGIN IMMEDIATE")
-
+        with self._using_connection(_db, immediate=True) as db:
             existing = db.execute(
                 """SELECT 1 FROM repayments
                    WHERE business_id = ? AND repayment_reference = ?""",

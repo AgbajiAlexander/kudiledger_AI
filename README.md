@@ -20,6 +20,7 @@ Open `http://127.0.0.1:8000/app` and sign in with the synthetic account created 
 | Environment variable | Purpose |
 | --- | --- |
 | `KUDILEDGER_DB` | SQLite path for the API. Defaults to `kudiledger_api.db` relative to the working directory. Use a separate database for demos and testing. |
+| `KUDILEDGER_REQUIRE_HTTPS` | Defaults to `0` for local synthetic use. Set `1` to require HTTPS and send HSTS on secure requests. Review trusted proxy configuration first. |
 | `KUDILEDGER_BROWSER` | Optional path to Chromium, Chrome, or Edge for the browser test. The test also checks PATH and standard Windows installation locations. |
 
 ## Demo workflow
@@ -62,14 +63,14 @@ The API requires authorization for the requested business. Receipts use the busi
 
 - FastAPI serves the vanilla HTML, CSS and JavaScript dashboard and the versioned API. The SQLite ledger and services hold the authoritative financial records.
 - The API converts naira amounts to integer kobo, requires explicit confirmation and checks ownership on business operations. Sale, repayment and expense references are unique per business and transaction type. Confirmed financial records are protected by database triggers. Adjustments and reversals record supported corrections separately.
-- Financial saves from the dashboard use a server-side recovery journal before issuing the write. Existing databases get the new journal table automatically. The original fields stay on the server and amounts are compared in exact kobo.
+- Financial saves from the dashboard use a server-side recovery journal before issuing the write. The claim, financial write and outcome commit atomically. The original fields stay on the server and amounts are compared in exact kobo.
 
 ## Recover an interrupted save
 
 1. Reconnect and sign in with the account that recorded the transaction. Open **Recovery**. The list survives refresh and sign-out.
 2. Find the reference and select **Check saved transaction**. **Verified as saved** offers the receipt. **Ready but unsent** means this workflow never started the save. You can cancel the unsent record and then record it again. A **Rejected** result lets you review and confirm a correction.
 3. If the record is **Still uncertain** or a different record uses the reference, keep the reference and leave the record in Recovery. A missing result can change after the connection returns. Avoid recording the same activity under a new reference.
-4. If repeated checks stay uncertain or show a conflict, contact the business operator or support through your usual channel. Give them the business, transaction type, reference, and approximate Nigeria time. Ask them to compare the protected ledger or receipt with the original record. Keep the entry blocked if they cannot establish the outcome. The receipt describes what KudiLedger recorded, and any external payment verification must happen with the payment provider. Keep passwords and tokens private.
+4. If repeated checks stay uncertain or show a conflict, contact the business operator or support through your usual channel. Give them the business, transaction type, reference, and approximate Nigeria time. A granted operator can investigate and record an auditable decision. Keep the entry blocked if they cannot establish the outcome. External payment verification happens with the payment provider. Keep passwords and tokens private.
 
 Recently checked records retain the last few references after a successful save and can be checked again to reopen receipts. See the [recovery threat model](docs/transaction-recovery.md) for authorization, storage, retention, and concurrency details.
 
@@ -96,4 +97,14 @@ The tests create synthetic records in temporary SQLite databases. Node checks th
 
 ## Development limits
 
-Use the local server with synthetic data. The project still needs secure deployment configuration, account recovery and verification, operational monitoring, backup and restore drills, and a PostgreSQL migration plan. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the audit and review gate. Run `python engine.py` for the standalone rule-based parsing demo.
+Use the local server with synthetic data. The project still needs secure deployment configuration, account recovery and verification, operational monitoring, restore drills on the target host, and a PostgreSQL migration plan. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the audit and review gate. Run `python engine.py` for the standalone rule-based parsing demo.
+
+## Synthetic pilot safety
+
+KLD-006B5 adds atomic recovery, restricted operator decisions, and local backup and restore commands. The new operator tables initialize on startup. Stop any workers running the older version before upgrading the database.
+
+```powershell
+.venv/Scripts/python.exe -m unittest -v tests.test_atomic_recovery tests.test_recovery_operator tests.test_pilot_database tests.test_pilot_security
+```
+
+See the [architecture decision](docs/pilot-architecture.md) for the transaction design and the [pilot operations guide](docs/pilot-operations.md) for operator provisioning, the backup drill, HTTPS configuration, and the remaining readiness gaps.

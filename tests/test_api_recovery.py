@@ -3,7 +3,6 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -83,8 +82,9 @@ class TestRecoveryAPI(unittest.TestCase):
 
     def test_missing_lookup_after_uncertain_write_remains_blocked(self):
         attempt = self.prepared()
-        with patch.object(RecoveryLedger, "add_sale", side_effect=RuntimeError("Synthetic interruption")):
-            self.assertEqual(self.request("POST", attempt + "/submit").status_code, 500)
+        # KLD-006B4 could persist a claim before its financial write.
+        with self.ledger.connect() as db:
+            db.execute("UPDATE recovery_attempts SET stage = 'sending' WHERE id = ?", (attempt[1:],))
         self.assertEqual(self.request("POST", attempt + "/check").json()["status"], "unresolved")
         self.assertEqual(self.request("POST", attempt + "/submit").status_code, 409)
         self.assertEqual(self.request("DELETE", attempt + "?action=dismiss").status_code, 409)

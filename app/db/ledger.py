@@ -51,6 +51,19 @@ class Ledger:
         finally:
             connection.close()
 
+    @contextmanager
+    def _using_connection(self, connection=None, *, immediate=False):
+        """Join a caller-owned transaction or open and finish our own."""
+        if connection is not None:
+            if not connection.in_transaction:
+                raise RuntimeError("A caller-owned connection must have an active transaction")
+            yield connection
+            return
+        with self.connect() as db:
+            if immediate:
+                db.execute("BEGIN IMMEDIATE")
+            yield db
+
     def initialize(self):
         with self.connect() as db:
             db.executescript("""
@@ -159,6 +172,8 @@ class Ledger:
         total_naira,
         paid_naira,
         confirmed=False,
+        *,
+        _db=None,
     ):
         if confirmed is not True:
             raise ValueError("Sale must be confirmed before saving")
@@ -177,7 +192,7 @@ class Ledger:
 
         sale_id = str(uuid4())
 
-        with self.connect() as db:
+        with self._using_connection(_db) as db:
             customer = db.execute(
                 """SELECT id FROM customers
                    WHERE id = ? AND business_id = ?""",
