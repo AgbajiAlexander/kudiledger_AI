@@ -302,11 +302,13 @@ async function api(path, options = {}) {
       $("dashboard").hidden = true;
       $("login-panel").hidden = false;
     }
-    throw new Error(
+    const error = new Error(
       response.status === 401 ? "Session expired or invalid." :
       response.status === 403 ? "Access to this business is denied." :
       "Request failed (HTTP " + response.status + ")."
     );
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -400,11 +402,151 @@ function transactionReference() {
   return "WEB-" + crypto.randomUUID();
 }
 
+
+function cents(value) {
+  const text = String(value);
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  const parts = text.split(".");
+  return BigInt(parts[0]) * 100n +
+    BigInt((parts[1] || "").padEnd(2, "0"));
+}
+
+function sameTransaction(kind, attempted, saved) {
+  if (!saved.found ||
+      saved.kind !== kind ||
+      saved.reference !== attempted.reference) {
+    return false;
+  }
+
+  if (kind === "sale") {
+    return saved.customer_id === attempted.customer_id &&
+      cents(saved.total) === cents(attempted.total) &&
+      cents(saved.paid) === cents(attempted.paid);
+  }
+
+  if (kind === "repayment") {
+    return saved.customer_id === attempted.customer_id &&
+      cents(saved.amount) === cents(attempted.amount);
+  }
+
+  if (kind === "expense") {
+    return saved.category === attempted.category &&
+      saved.description === attempted.description &&
+      cents(saved.amount) === cents(attempted.amount);
+  }
+
+  return false;
+}
+
 function connectForm(id, endpoint, makePayload, confirmation) {
   const form = $(id);
+  const kind = {
+    "/sales": "sale",
+    "/repayments": "repayment",
+    "/expenses": "expense"
+  }[endpoint] || null;
+
+  const button = form.querySelector('button[type="submit"]');
+  let pending = null;
+  let busy = false;
+
+  const checkButton = document.createElement("button");
+  checkButton.type = "button";
+  checkButton.className = "secondary";
+  checkButton.textContent = "Check saved transaction";
+  checkButton.hidden = true;
+
+  if (kind) {
+    form.querySelector(".actions").append(checkButton);
+  }
+
+  function updateButtons() {
+    button.disabled = busy || Boolean(pending);
+    checkButton.disabled = busy;
+    checkButton.hidden = !pending;
+  }
+
+  async function savedSuccessfully() {
+    pending = null;
+    form.reset();
+    delete form.dataset.reference;
+    updateButtons();
+    await refreshDashboard();
+    message("Transaction verified as saved.");
+  }
+
+  async function verifyPending() {
+    if (!pending || !kind || !businessId || !accessToken) {
+      return;
+    }
+
+    const original = pending;
+    busy = true;
+    updateButtons();
+
+    try {
+      const base = "/api/v1/businesses/" +
+        encodeURIComponent(businessId);
+      const params = new URLSearchParams({
+        kind: kind,
+        reference: original.payload.reference
+      });
+
+      const saved = await api(
+        base + "/transactions/lookup?" + params.toString()
+      );
+
+      if (saved.found) {
+        if (sameTransaction(kind, original.payload, saved)) {
+          await savedSuccessfully();
+        } else {
+          message(
+            "REFERENCE CONFLICT: A different transaction uses " +
+            original.payload.reference +
+            ". Do not submit again. Review the records."
+          );
+        }
+      } else if (
+        original.errorStatus === 400 ||
+        original.errorStatus === 422
+      ) {
+        pending = null;
+        message(
+          "The server rejected this transaction, and no " +
+          "matching reference was found. Correct the form " +
+          "before submitting again."
+        );
+      } else {
+        message(
+          "Transaction not found yet. Its final status is " +
+          "still uncertain. Do not submit again. " +
+          "Use Check saved transaction to recheck."
+        );
+      }
+    } catch (error) {
+      message(
+        "Could not verify transaction " +
+        original.payload.reference + ". " +
+        "Do not submit again. " + error.message
+      );
+    } finally {
+      busy = false;
+      updateButtons();
+    }
+  }
+
+  checkButton.addEventListener("click", verifyPending);
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
+
+    if (busy || pending) {
+      message(
+        "This transaction needs verification before " +
+        "another submission."
+      );
+      return;
+    }
 
     if (!accessToken || !businessId) {
       message("Sign in before recording transactions.");
@@ -417,9 +559,12 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
     if (!window.confirm(confirmation(payload))) return;
 
-    const button = form.querySelector('button[type="submit"]');
-    button.disabled = true;
+    busy = true;
+    updateButtons();
     message("");
+
+    let saved = false;
+    let submissionError = null;
 
     try {
       const base = "/api/v1/businesses/" +
@@ -431,16 +576,51 @@ function connectForm(id, endpoint, makePayload, confirmation) {
         body: JSON.stringify(payload)
       });
 
+      saved = true;
+    } catch (error) {
+      submissionError = error;
+    } finally {
+      busy = false;
+    }
+
+    if (saved) {
+      pending = null;
       form.reset();
       delete form.dataset.reference;
+      updateButtons();
       await refreshDashboard();
       message("Record saved successfully.");
-    } catch (error) {
-      message("Not confirmed as saved: " + error.message +
-        " Check the records before trying again.");
-    } finally {
-      button.disabled = false;
+      return;
     }
+
+    if (!kind) {
+      updateButtons();
+      message(
+        "Customer was not confirmed as saved. " +
+        submissionError.message +
+        " Check the customer list before trying again."
+      );
+      return;
+    }
+
+    if (submissionError.status === 401 ||
+        submissionError.status === 403) {
+      updateButtons();
+      message(submissionError.message);
+      return;
+    }
+
+    pending = {
+      payload: payload,
+      errorStatus: submissionError.status || null
+    };
+    updateButtons();
+
+    message(
+      "Submission response was not successful. " +
+      "Checking reference " + payload.reference + "."
+    );
+    await verifyPending();
   });
 }
 
