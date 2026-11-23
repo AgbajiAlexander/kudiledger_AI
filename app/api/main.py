@@ -382,6 +382,18 @@ def create_app(database_path=None):
             )
         )
 
+
+    @app.get("/api/v1/businesses/{business_id}/customers")
+    def list_business_customers(
+        business_id: str,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(
+            lambda: ledger.list_business_customers(
+                token, business_id
+            )
+        )
+
     return app
 
 

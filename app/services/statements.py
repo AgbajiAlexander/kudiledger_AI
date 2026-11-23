@@ -1,4 +1,4 @@
-﻿from app.db.ledger import from_kobo
+from app.db.ledger import from_kobo
 from app.services.reversals import ReversalLedger
 
 
@@ -97,3 +97,45 @@ class StatementLedger(ReversalLedger):
                 running_balance == authoritative_balance
             ),
         }
+
+    def list_business_customers(self, token, business_id):
+        """Return customers with their current debt balances."""
+        self._authorize(token, business_id)
+
+        with self.connect() as db:
+            rows = db.execute(
+                """SELECT id, name
+                   FROM customers
+                   WHERE business_id = ?
+                   ORDER BY name COLLATE NOCASE, id""",
+                (business_id,),
+            ).fetchall()
+
+            customers = []
+            total_kobo = 0
+
+            for row in rows:
+                balance = self._balance_kobo(
+                    db, business_id, row["id"]
+                )
+                total_kobo += balance
+
+                customers.append({
+                    "id": row["id"],
+                    "name": row["name"],
+                    "outstanding_balance": str(
+                        from_kobo(balance)
+                    ),
+                    "currency": "NGN",
+                })
+
+        return {
+            "business_id": business_id,
+            "customer_count": len(customers),
+            "total_outstanding": str(
+                from_kobo(total_kobo)
+            ),
+            "currency": "NGN",
+            "customers": customers,
+        }
+
