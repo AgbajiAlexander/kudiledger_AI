@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.reversals import ReversalLedger
+from app.services.statements import StatementLedger
 from app.services.login_guard import LoginGuard
 
 
@@ -65,7 +65,7 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = ReversalLedger(db_path)
+    ledger = StatementLedger(db_path)
     login_guard = LoginGuard(ledger)
 
     def require_token(
@@ -365,6 +365,22 @@ def create_app(database_path=None):
             }
             for record in records
         ]
+
+
+    @app.get(
+        "/api/v1/businesses/{business_id}/customers/"
+        "{customer_id}/statement"
+    )
+    def get_customer_statement(
+        business_id: str,
+        customer_id: str,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(
+            lambda: ledger.customer_statement(
+                token, business_id, customer_id
+            )
+        )
 
     return app
 
