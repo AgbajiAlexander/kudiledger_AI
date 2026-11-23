@@ -62,14 +62,33 @@ The API requires authorization for the requested business. Receipts use the busi
 
 - FastAPI serves the vanilla HTML, CSS and JavaScript dashboard and the versioned API. The SQLite ledger and services hold the authoritative financial records.
 - The API converts naira amounts to integer kobo, requires explicit confirmation and checks ownership on business operations. Sale, repayment and expense references are unique per business and transaction type. Confirmed financial records are protected by database triggers. Adjustments and reversals record supported corrections separately.
-- Recovery uses the original payload and business, checks the reference with an authenticated GET and compares amounts exactly. A missing lookup after an interrupted write leaves the form blocked. Record the reference, sign in to the same business if needed, and check again. For unresolved or conflicting entries, preserve the reference and review committed records with the operator before posting a replacement.
-- Recovery state lives in the open page. The dashboard requests a navigation warning while a financial submission is pending. Browser behavior varies, particularly on mobile. A refresh or tab close can lose the recovery state.
+- Financial saves from the dashboard use a server-side recovery journal before issuing the write. Existing databases get the new journal table automatically. The original fields stay on the server and amounts are compared in exact kobo.
+
+## Recover an interrupted save
+
+1. Reconnect and sign in with the account that recorded the transaction. Open **Recovery**. The list survives refresh and sign-out.
+2. Find the reference and select **Check saved transaction**. **Verified as saved** offers the receipt. **Ready but unsent** means this workflow never started the save. You can cancel the unsent record and then record it again. A **Rejected** result lets you review and confirm a correction.
+3. If the record is **Still uncertain** or a different record uses the reference, keep the reference and leave the record in Recovery. A missing result can change after the connection returns. Avoid recording the same activity under a new reference.
+4. If repeated checks stay uncertain or show a conflict, contact the business operator or support through your usual channel. Give them the business, transaction type, reference, and approximate Nigeria time. Ask them to compare the protected ledger or receipt with the original record. Keep the entry blocked if they cannot establish the outcome. The receipt describes what KudiLedger recorded, and any external payment verification must happen with the payment provider. Keep passwords and tokens private.
+
+Recently checked records retain the last few references after a successful save and can be checked again to reopen receipts. See the [recovery threat model](docs/transaction-recovery.md) for authorization, storage, retention, and concurrency details.
+
+### Reproduce the lost-response demo
+
+Run the following with Chrome or Edge and Node.js 24. It launches a local Uvicorn server with synthetic data, interrupts the already committed response in Chrome, checks the offline state, reloads the page, signs in again, and opens the saved receipt. It asserts that exactly one sale was committed.
+
+```powershell
+.venv/Scripts/python.exe -m unittest -v tests.test_browser_persistent_recovery
+```
+
+[After refresh and sign-in](docs/review/KLD-006B4/unresolved-after-sign-in.png) · [Verified sale with receipt action](docs/review/KLD-006B4/verified-with-receipt.png)
 
 ## Tests
 
 ```powershell
 .venv/Scripts/python.exe -m unittest discover -v
 .venv/Scripts/python.exe -m unittest -v tests.test_dashboard_javascript tests.test_dashboard_recovery
+.venv/Scripts/python.exe -m unittest -v tests.test_api_recovery tests.test_browser_persistent_recovery
 git diff --check
 ```
 

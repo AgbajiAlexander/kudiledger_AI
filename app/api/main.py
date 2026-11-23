@@ -3,13 +3,13 @@ from pathlib import Path
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.reports import ReportLedger
+from app.services.recovery import RecoveryConflict, RecoveryLedger, RecoveryNotFound
 from app.services.login_guard import LoginGuard
 
 
@@ -66,6 +66,33 @@ class ExpenseRequest(BaseModel):
     confirmed: bool = False
 
 
+class RecoverySale(SaleRequest):
+    kind: Literal["sale"]
+    customer_id: str = Field(min_length=1, max_length=100)
+    total: str = Field(min_length=1, max_length=40)
+    paid: str = Field(min_length=1, max_length=40)
+
+
+class RecoveryRepayment(RepaymentRequest):
+    kind: Literal["repayment"]
+    customer_id: str = Field(min_length=1, max_length=100)
+    amount: str = Field(min_length=1, max_length=40)
+
+
+class RecoveryExpense(ExpenseRequest):
+    kind: Literal["expense"]
+
+
+class RecoveryAcknowledgement(BaseModel):
+    transaction_id: str = Field(min_length=1, max_length=100)
+
+
+RecoveryPayload = Annotated[
+    RecoverySale | RecoveryRepayment | RecoveryExpense,
+    Field(discriminator="kind"),
+]
+
+
 def create_app(database_path=None):
     app = FastAPI(
         title="KudiLedger AI",
@@ -77,7 +104,7 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = ReportLedger(db_path)
+    ledger = RecoveryLedger(db_path)
     login_guard = LoginGuard(ledger)
 
     @app.exception_handler(RequestValidationError)
@@ -123,6 +150,10 @@ def create_app(database_path=None):
                 status_code=403,
                 detail="Access denied",
             ) from None
+        except RecoveryNotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from None
+        except RecoveryConflict as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
         except ValueError as error:
             raise HTTPException(
                 status_code=400,
@@ -551,6 +582,61 @@ def create_app(database_path=None):
             raise HTTPException(status_code=404, detail="Receipt not found")
         response.headers["Cache-Control"] = "no-store"
         return receipt
+
+    recovery_path = "/api/v1/businesses/{business_id}/recovery"
+
+    @app.get(recovery_path)
+    def list_recovery(business_id: str, response: Response, token: str = Depends(require_token)):
+        response.headers["Cache-Control"] = "no-store"
+        return run_protected(lambda: ledger.list_recovery(token, business_id))
+
+    @app.post(recovery_path, status_code=201)
+    def prepare_recovery(
+        business_id: str, payload: RecoveryPayload, response: Response,
+        token: str = Depends(require_token),
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        return run_protected(lambda: ledger.prepare_recovery(
+            token, business_id, payload.kind, payload.model_dump(exclude={"kind"}),
+        ))
+
+    @app.post(recovery_path + "/{attempt_id}/submit")
+    def submit_recovery(
+        business_id: str, attempt_id: str, response: Response,
+        token: str = Depends(require_token),
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        return run_protected(lambda: ledger.submit_recovery(token, business_id, attempt_id))
+
+    @app.post(recovery_path + "/{attempt_id}/check")
+    def check_recovery(
+        business_id: str, attempt_id: str, response: Response,
+        token: str = Depends(require_token),
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        return run_protected(lambda: ledger.check_recovery(token, business_id, attempt_id))
+
+    @app.post(recovery_path + "/{attempt_id}/acknowledge")
+    def acknowledge_recovery(
+        business_id: str, attempt_id: str, payload: RecoveryAcknowledgement,
+        response: Response, token: str = Depends(require_token),
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        return run_protected(lambda: ledger.acknowledge_recovery(
+            token, business_id, attempt_id, payload.transaction_id,
+        ))
+
+    @app.delete(recovery_path + "/{attempt_id}")
+    def clear_recovery(
+        business_id: str, attempt_id: str, response: Response,
+        action: Literal["cancel", "dismiss"],
+        token: str = Depends(require_token),
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        run_protected(lambda: ledger.clear_recovery(
+            token, business_id, attempt_id, cancel=action == "cancel",
+        ))
+        return {"status": "cleared"}
 
     return app
 

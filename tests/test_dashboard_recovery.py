@@ -64,8 +64,9 @@ class TestDashboardRecovery(unittest.TestCase):
                 [
                     find_chromium(), "--headless", "--disable-gpu",
                     "--no-first-run", "--disable-background-networking",
+                    "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
                     f"--user-data-dir={root / 'profile'}",
-                    "--virtual-time-budget=10000", "--dump-dom", driver.as_uri(),
+                    "--virtual-time-budget=20000", "--dump-dom", driver.as_uri(),
                 ],
                 capture_output=True,
                 encoding="utf-8",

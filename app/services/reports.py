@@ -127,7 +127,7 @@ class ReportLedger(ExpenseLedger):
         }
 
 
-    def _find_transaction(self, business_id, kind, identifier, *, by_id=False):
+    def _find_transaction(self, db, business_id, kind, identifier, *, by_id=False):
         # Identifiers in SQL come only from these fixed transaction definitions.
         definitions = {
             "sale": ("sales", "sale_reference", "t.customer_id, t.total_kobo, t.paid_kobo",
@@ -141,9 +141,8 @@ class ReportLedger(ExpenseLedger):
         table, reference, fields, condition = definitions[kind]
         column = "id" if by_id else reference
         customer = "NULL" if kind == "expense" else "t.customer_id"
-        with self.connect() as db:
-            return db.execute(
-                f"""SELECT t.id, t.{reference} AS reference, t.created_at, {fields},
+        return db.execute(
+            f"""SELECT t.id, t.{reference} AS reference, t.created_at, {fields},
                            b.name AS business_name, c.name AS customer_name,
                            EXISTS (
                                SELECT 1 FROM sale_reversals r
@@ -153,8 +152,8 @@ class ReportLedger(ExpenseLedger):
                     JOIN businesses b ON b.id = t.business_id
                     LEFT JOIN customers c ON c.business_id = t.business_id AND c.id = {customer}
                     WHERE t.business_id = ? AND t.{column} = ? {condition}""",
-                (business_id, identifier),
-            ).fetchone()
+            (business_id, identifier),
+        ).fetchone()
 
     def lookup_transaction(self, token, business_id, kind, reference):
         """Look up an existing business transaction by reference."""
@@ -165,7 +164,8 @@ class ReportLedger(ExpenseLedger):
             raise ValueError("Invalid transaction reference")
 
         reference = reference.strip()
-        row = self._find_transaction(business_id, kind, reference)
+        with self.connect() as db:
+            row = self._find_transaction(db, business_id, kind, reference)
 
         if row is None:
             return {
@@ -213,7 +213,8 @@ class ReportLedger(ExpenseLedger):
         identifier = (transaction_id if by_id else reference).strip()
         if not 1 <= len(identifier) <= 100:
             raise ValueError("Invalid transaction identifier")
-        row = self._find_transaction(business_id, kind, identifier, by_id=by_id)
+        with self.connect() as db:
+            row = self._find_transaction(db, business_id, kind, identifier, by_id=by_id)
         if row is None:
             return None
 
