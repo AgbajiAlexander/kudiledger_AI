@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.statements import StatementLedger
+from app.services.expenses import ExpenseLedger
 from app.services.login_guard import LoginGuard
 
 
@@ -54,6 +54,15 @@ class SaleReversalRequest(BaseModel):
     confirmed: bool = False
 
 
+
+class ExpenseRequest(BaseModel):
+    reference: str = Field(min_length=1, max_length=100)
+    category: str = Field(min_length=2, max_length=80)
+    description: str = Field(min_length=3, max_length=500)
+    amount: str = Field(min_length=1, max_length=40)
+    confirmed: bool = False
+
+
 def create_app(database_path=None):
     app = FastAPI(
         title="KudiLedger AI",
@@ -65,7 +74,7 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = StatementLedger(db_path)
+    ledger = ExpenseLedger(db_path)
     login_guard = LoginGuard(ledger)
 
     def require_token(
@@ -390,6 +399,55 @@ def create_app(database_path=None):
     ):
         return run_protected(
             lambda: ledger.list_business_customers(
+                token, business_id
+            )
+        )
+
+
+    @app.post(
+        "/api/v1/businesses/{business_id}/expenses",
+        status_code=201,
+    )
+    def create_expense(
+        business_id: str,
+        payload: ExpenseRequest,
+        token: str = Depends(require_token),
+    ):
+        expense_id = run_protected(
+            lambda: ledger.record_expense(
+                token,
+                business_id,
+                payload.reference,
+                payload.category,
+                payload.description,
+                payload.amount,
+                confirmed=payload.confirmed,
+            )
+        )
+
+        return {
+            "id": expense_id,
+            "status": "CONFIRMED",
+        }
+
+    @app.get("/api/v1/businesses/{business_id}/expenses")
+    def list_business_expenses(
+        business_id: str,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(
+            lambda: ledger.list_expenses(
+                token, business_id
+            )
+        )
+
+    @app.get("/api/v1/businesses/{business_id}/expenses/summary")
+    def get_expense_summary(
+        business_id: str,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(
+            lambda: ledger.expense_summary(
                 token, business_id
             )
         )
