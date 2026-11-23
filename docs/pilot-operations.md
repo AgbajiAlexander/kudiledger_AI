@@ -1,6 +1,6 @@
 ﻿# Synthetic pilot operations
 
-KLD-006B5 is for an isolated pilot using synthetic records only. Stop at independent review before deployment or onboarding. See the [architecture decision](pilot-architecture.md) and [recovery threat model](transaction-recovery.md).
+KLD-006B5 is for an isolated pilot using synthetic records only. Stop at independent review before deployment or onboarding. The later [supervised pilot guide](supervised-pilot.md) tracks staging, account lifecycle and current readiness checks. See the [architecture decision](pilot-architecture.md) and [recovery threat model](transaction-recovery.md) for the financial controls.
 
 ## Audited investigation
 

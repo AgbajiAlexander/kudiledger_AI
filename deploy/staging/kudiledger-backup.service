@@ -1,0 +1,18 @@
+[Unit]
+Description=Verified SQLite snapshot for KudiLedger staging
+
+[Service]
+Type=oneshot
+User=kudiledger
+Group=kudiledger
+WorkingDirectory=/opt/kudiledger/current
+EnvironmentFile=/etc/kudiledger/staging.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/kudiledger/venv/bin/python -m app.operations.staging scheduled-backup
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/backups/kudiledger
+CapabilityBoundingSet=

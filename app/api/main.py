@@ -2,19 +2,23 @@ import base64
 import hashlib
 import os
 import re
+import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
+from app.services.account_mail import AccountMail
 from app.services.login_guard import LoginGuard
-from app.services.operators import PilotLedger
 from app.services.recovery import RecoveryConflict, RecoveryNotFound
+from app.services.telemetry import StagingLedger, event
 
 
 security = HTTPBearer(auto_error=False)
@@ -23,6 +27,15 @@ security = HTTPBearer(auto_error=False)
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: str = Field(max_length=254)
+
+
+class AccountLinkRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=12, max_length=1024)
 
 
 class CustomerRequest(BaseModel):
@@ -105,7 +118,7 @@ RecoveryPayload = Annotated[
 ]
 
 
-def create_app(database_path=None, *, require_https=None):
+def create_app(database_path=None, *, require_https=None, account_mail=None):
     app = FastAPI(
         title="KudiLedger AI",
         description="Financial record-keeping API for Nigerian SMEs",
@@ -122,16 +135,38 @@ def create_app(database_path=None, *, require_https=None):
             raise ValueError("KUDILEDGER_REQUIRE_HTTPS must be 0 or 1")
         require_https = configured == "1"
 
-    ledger = PilotLedger(db_path)
+    ledger = StagingLedger(db_path)
     login_guard = LoginGuard(ledger)
+    mail = account_mail if account_mail is not None else AccountMail.from_environment()
+
+    financial_posts = {
+        "/api/v1/businesses/{business_id}/" + endpoint
+        for endpoint in ("sales", "repayments", "expenses", "adjustments",
+                         "sale-reversals", "recovery/{attempt_id}/submit")
+    }
 
     @app.middleware("http")
     async def response_safeguards(request, call_next):
+        started = time.monotonic()
+        request_id = uuid4().hex
         secure = request.url.scheme == "https"
         if require_https and not secure:
             response = JSONResponse({"detail": "HTTPS is required"}, status_code=400)
         else:
-            response = await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception:
+                # Exception messages can contain submitted values.
+                response = JSONResponse({"detail": "Request could not be completed"}, status_code=500)
+        route = getattr(request.scope.get("route"), "path", None) or "unmatched"
+        status = response.status_code
+        if status >= 500 and request.method == "POST" and route in financial_posts:
+            await run_in_threadpool(ledger.note_failed_write)
+        if route != "/health" or status >= 400:
+            event("http_request", request_id=request_id, route=route,
+                  method=request.method if request.method in ("GET", "POST", "DELETE", "HEAD") else "other",
+                  status=status, elapsed_ms=round((time.monotonic() - started) * 1000))
+        response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -203,8 +238,9 @@ def create_app(database_path=None, *, require_https=None):
         }
 
     @app.post("/api/v1/auth/login")
-    def login(payload: LoginRequest):
+    def login(payload: LoginRequest, request: Request):
         email = payload.email
+        limit_client(request, "login", 60)
 
         if len(email) > 254 or len(payload.password) > 1024:
             raise HTTPException(
@@ -235,6 +271,43 @@ def create_app(database_path=None, *, require_https=None):
             "token_type": "bearer",
             "expires_in": 43200,
         }
+
+    def limit_client(request, operation, limit):
+        client = request.client.host if request.client else "unknown"
+        if not ledger.allow_auth(operation, client, limit, 900):
+            raise HTTPException(
+                status_code=429, detail="Too many attempts. Try again later.",
+                headers={"Retry-After": "900"},
+            )
+
+    def send_password_reset(email):
+        try:
+            if mail.permits(email):
+                token = ledger.request_password_reset(email)
+                if token:
+                    mail.send("reset", email, token)
+        except Exception:
+            event("account_mail_delivery_failed", purpose="reset")
+
+    @app.post("/api/v1/auth/password-reset", status_code=202)
+    def start_password_reset(payload: PasswordResetRequest, request: Request, tasks: BackgroundTasks):
+        limit_client(request, "reset-request", 8)
+        email = payload.email.strip().casefold()
+        if ledger.allow_auth("reset-recipient", email, 3, 3600):
+            tasks.add_task(send_password_reset, email)
+        return {"message": "If an account can receive a reset, check its inbox."}
+
+    @app.post("/api/v1/auth/password-reset/complete")
+    def complete_password_reset(payload: AccountLinkRequest, request: Request):
+        limit_client(request, "reset-complete", 12)
+        run_protected(lambda: ledger.consume_account_link("reset", payload.token, payload.password))
+        return {"message": "Password updated. Sign in again."}
+
+    @app.post("/api/v1/auth/invite/complete")
+    def complete_invite(payload: AccountLinkRequest, request: Request):
+        limit_client(request, "invite-complete", 12)
+        run_protected(lambda: ledger.consume_account_link("invite", payload.token, payload.password))
+        return {"message": "Email verified. Sign in to KudiLedger."}
 
     @app.post("/api/v1/auth/logout")
     def logout(token: str = Depends(require_token)):

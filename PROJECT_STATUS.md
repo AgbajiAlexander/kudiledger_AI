@@ -8,7 +8,16 @@
 - KLD-006B2 secure transaction receipts merged into `main` at `9eb219a`.
 - KLD-006B3 mobile trader experience merged into `main` at `4fef013`.
 - KLD-006B4 persistent transaction recovery merged into `main` at `4bda1f7`.
-- KLD-006B5 pilot safety is on `feature/KLD-006B5-pilot-safety` for independent review.
+- KLD-006B5 pilot safety merged into `main` at `48860c1`.
+- KLD-006C0 deployment readiness is on `feature/KLD-006C0-deployment-readiness` for independent review.
+
+## KLD-006C0 supervised staging
+
+- Linux systemd and Caddy configuration supports a single unprivileged API worker with local SQLite and approved TLS. Loopback Caddy validation uses a trusted temporary CA and real Chrome at mobile and desktop widths. Public DNS, certificates and deployed systemd units remain unverified.
+- Supervisor-issued invitations verify inbox access. Expiring, one-time reset links enforce session revocation and uniform reset responses. Synthetic capture requires test addresses. Real SMTP delivery remains behind separate approval.
+- Privacy-safe structured logs omit raw request and exception data. Local health and recovery thresholds, a scheduled snapshot timer and the isolated restore scenario support rehearsal.
+- Verification on 23 November 2026 passed 215 tests in 123.707 seconds with zero failures, errors or skips. Seven focused account, telemetry and acceptance tests passed in 5.622 seconds. Caddy 2.11.9 and Chrome completed the trusted loopback staging test at 390 px and 1440 px. JavaScript syntax, dependency and whitespace checks passed.
+- See the [staging architecture and costs](docs/staging-architecture.md) and the [supervised pilot checklist](docs/supervised-pilot.md#go-no-go). Live alert routing, off-host backup scheduling, and Android, TalkBack and printer checks remain open.
 
 ## KLD-006B5 synthetic pilot safety
 

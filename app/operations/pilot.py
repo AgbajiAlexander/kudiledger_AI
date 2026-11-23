@@ -101,6 +101,8 @@ def restore_database(backup, destination, expected_sha256):
         with closing(sqlite3.connect(staged)) as db, db:
             # Restored credentials remain usable for a new sign-in.
             db.execute("DELETE FROM sessions")
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'account_links'").fetchone():
+                db.execute("DELETE FROM account_links")
 
     return _publish(target, restore_copy)
 

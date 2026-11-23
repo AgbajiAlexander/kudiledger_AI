@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily KudiLedger staging backup at 02:00 Nigeria time
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Africa/Lagos
+Persistent=true
+Unit=kudiledger-backup.service
+
+[Install]
+WantedBy=timers.target

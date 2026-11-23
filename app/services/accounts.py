@@ -58,22 +58,22 @@ class AccountLedger(RepaymentLedger):
             dklen=32,
         ).hex()
 
-    def register_owner(self, business_name, email, password):
+    @staticmethod
+    def normalize_email(email):
+        email = email.strip().casefold()
+        if (len(email) > 254 or email.count("@") != 1
+                or not all(email.split("@")) or any(c.isspace() for c in email)):
+            raise ValueError("Valid email required")
+        return email
+
+    def register_owner(self, business_name, email, password, *, _db=None):
         if not isinstance(business_name, str) or not business_name.strip():
             raise ValueError("Business name required")
 
         if not isinstance(email, str):
             raise ValueError("Valid email required")
 
-        email = email.strip().casefold()
-
-        if (
-            len(email) > 254
-            or email.count("@") != 1
-            or not all(email.split("@"))
-            or any(c.isspace() for c in email)
-        ):
-            raise ValueError("Valid email required")
+        email = self.normalize_email(email)
 
         if (
             not isinstance(password, str)
@@ -90,7 +90,7 @@ class AccountLedger(RepaymentLedger):
         user_id = str(uuid4())
         business_id = str(uuid4())
 
-        with self.connect() as db:
+        with self._using_connection(_db) as db:
             try:
                 db.execute(
                     "INSERT INTO businesses (id, name) VALUES (?, ?)",
@@ -129,15 +129,12 @@ class AccountLedger(RepaymentLedger):
                 (normalized,),
             ).fetchone()
 
-            if user is None:
-                raise ValueError("Invalid credentials")
-
             candidate = self._hash_password(
                 password,
-                bytes.fromhex(user["password_salt"]),
+                bytes.fromhex(user["password_salt"]) if user else b"\0" * 16,
             )
 
-            if not hmac.compare_digest(
+            if user is None or not hmac.compare_digest(
                 candidate, user["password_hash"]
             ):
                 raise ValueError("Invalid credentials")
@@ -149,12 +146,15 @@ class AccountLedger(RepaymentLedger):
 
             expires = int(time.time()) + 12 * 60 * 60
 
-            db.execute(
+            issued = db.execute(
                 """INSERT INTO sessions
                    (token_hash, user_id, expires_at)
-                   VALUES (?, ?, ?)""",
-                (token_hash, user["id"], expires),
+                   SELECT ?, id, ? FROM users
+                   WHERE id = ? AND password_hash = ?""",
+                (token_hash, expires, user["id"], user["password_hash"]),
             )
+            if issued.rowcount != 1:
+                raise ValueError("Invalid credentials")
 
         return token
 
