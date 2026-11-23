@@ -1,4 +1,4 @@
-﻿from datetime import date
+from datetime import date
 
 from app.db.ledger import from_kobo
 from app.services.expenses import ExpenseLedger
@@ -101,3 +101,87 @@ class ReportLedger(ExpenseLedger):
                 from_kobo(outstanding)
             ),
         }
+
+
+    def lookup_transaction(
+        self, token, business_id, kind, reference
+    ):
+        """Look up an existing business transaction by reference."""
+        self._authorize(token, business_id)
+
+        if kind not in ("sale", "repayment", "expense"):
+            raise ValueError("Invalid transaction type")
+
+        if (
+            not isinstance(reference, str)
+            or not 1 <= len(reference.strip()) <= 100
+        ):
+            raise ValueError("Invalid transaction reference")
+
+        reference = reference.strip()
+
+        queries = {
+            "sale": """
+                SELECT id, customer_id, sale_reference AS reference,
+                       total_kobo, paid_kobo, created_at
+                FROM sales
+                WHERE business_id = ? AND sale_reference = ?
+            """,
+            "repayment": """
+                SELECT id, customer_id,
+                       repayment_reference AS reference,
+                       amount_kobo, created_at
+                FROM repayments
+                WHERE business_id = ? AND repayment_reference = ?
+            """,
+            "expense": """
+                SELECT id, expense_reference AS reference,
+                       category, description,
+                       amount_kobo, created_at
+                FROM expenses
+                WHERE business_id = ? AND expense_reference = ?
+            """,
+        }
+
+        with self.connect() as db:
+            row = db.execute(
+                queries[kind],
+                (business_id, reference),
+            ).fetchone()
+
+        if row is None:
+            return {
+                "found": False,
+                "kind": kind,
+                "reference": reference,
+            }
+
+        result = {
+            "found": True,
+            "kind": kind,
+            "id": row["id"],
+            "reference": row["reference"],
+            "created_at": row["created_at"],
+            "currency": "NGN",
+        }
+
+        if kind == "sale":
+            result.update({
+                "customer_id": row["customer_id"],
+                "total": str(from_kobo(row["total_kobo"])),
+                "paid": str(from_kobo(row["paid_kobo"])),
+            })
+        elif kind == "repayment":
+            result.update({
+                "customer_id": row["customer_id"],
+                "amount": str(from_kobo(row["amount_kobo"])),
+            })
+        else:
+            result.update({
+                "category": row["category"],
+                "description": row["description"],
+                "amount": str(from_kobo(row["amount_kobo"])),
+            })
+
+        return result
+

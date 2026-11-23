@@ -499,6 +499,25 @@ def create_app(database_path=None):
             lambda: ledger.list_my_businesses(token)
         )
 
+
+    @app.get(
+        "/api/v1/businesses/{business_id}/transactions/lookup"
+    )
+    def lookup_existing_transaction(
+        business_id: str,
+        kind: str,
+        reference: str,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(
+            lambda: ledger.lookup_transaction(
+                token,
+                business_id,
+                kind,
+                reference,
+            )
+        )
+
     return app
 
 
