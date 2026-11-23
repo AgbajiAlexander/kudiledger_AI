@@ -1,0 +1,327 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KudiLedger AI — Trader Dashboard</title>
+<style>
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #182c27;
+  background: #f5f7f4;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+header {
+  padding: 20px max(20px, calc((100% - 1080px)/2));
+  background: #14563f;
+  color: white;
+}
+header strong { font-size: 22px; }
+header small { display: block; opacity: .85; margin-top: 4px; }
+main { max-width: 1080px; margin: 28px auto; padding: 0 20px; }
+h1 { font-size: 25px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 15px; }
+p { color: #64716c; }
+.panel, .metric {
+  background: white;
+  border: 1px solid #e5eae5;
+  border-radius: 15px;
+  padding: 20px;
+}
+.panel { margin-bottom: 20px; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin: 20px 0;
+}
+.metric span { color: #687771; font-size: 13px; }
+.metric strong {
+  display: block;
+  font-size: 25px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+label { font-size: 13px; font-weight: 650; display: block; }
+input {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-top: 6px;
+  border: 1px solid #d2dad5;
+  border-radius: 9px;
+  font: inherit;
+  min-width: 0;
+}
+button {
+  border: 0;
+  background: #166b4e;
+  color: white;
+  padding: 12px 19px;
+  border-radius: 9px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: wait; }
+button.secondary { background: #e9f0eb; color: #18543e; }
+.actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.message { margin: 12px 0; color: #a23232; min-height: 20px; }
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+table { width: 100%; border-collapse: collapse; }
+th, td {
+  padding: 11px 5px;
+  text-align: left;
+  border-bottom: 1px solid #ecf0ec;
+  font-size: 14px;
+}
+th:last-child, td:last-child { text-align: right; }
+.empty { font-size: 14px; color: #7b8580; }
+[hidden] { display: none !important; }
+@media (max-width: 850px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 580px) {
+  .grid, .columns, .fields { grid-template-columns: 1fr; }
+  header { padding: 18px 20px; }
+  .metric strong { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <strong>KudiLedger AI</strong>
+  <small>Simple business records for everyday traders</small>
+</header>
+<main>
+<section id="login-panel" class="panel">
+  <h1>Welcome back</h1>
+  <p>Sign in to view your business records.</p>
+  <form id="login-form">
+    <div class="fields">
+      <label>Email
+        <input id="email" type="email" autocomplete="username" required>
+      </label>
+      <label>Password
+        <input id="password" type="password"
+               autocomplete="current-password" required>
+      </label>
+      <label>Business ID
+        <input id="business-id" type="text" required
+               placeholder="Your registered business ID">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="login-button" type="submit">Sign in</button>
+    </div>
+  </form>
+</section>
+
+<section id="dashboard" hidden>
+  <div class="panel">
+    <h1>Business overview</h1>
+    <p>View sales, recorded receipts, expenses and customer debts.</p>
+    <div class="fields">
+      <label>Reporting date (UTC)
+        <input type="date" id="report-date">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="refresh" type="button">Refresh records</button>
+      <button id="logout" class="secondary" type="button">Log out</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="metric">
+      <span>Gross sales</span>
+      <strong id="gross-sales">—</strong>
+    </div>
+    <div class="metric">
+      <span>Recorded receipts</span>
+      <strong id="receipts">—</strong>
+    </div>
+    <div class="metric">
+      <span>Operating expenses</span>
+      <strong id="expenses-total">—</strong>
+    </div>
+    <div class="metric">
+      <span>Current customer debts</span>
+      <strong id="outstanding">—</strong>
+    </div>
+  </div>
+
+  <div class="columns">
+    <section class="panel">
+      <h2>Customers</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Debt</th></tr></thead>
+        <tbody id="customers"></tbody>
+      </table>
+    </section>
+    <section class="panel">
+      <h2>Expenses</h2>
+      <table>
+        <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+        <tbody id="expense-list"></tbody>
+      </table>
+    </section>
+  </div>
+</section>
+<p id="message" class="message" role="status" aria-live="polite"></p>
+</main>
+<script>
+"use strict";
+
+let accessToken = null;
+let businessId = null;
+const $ = id => document.getElementById(id);
+
+const money = value => {
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? new Intl.NumberFormat("en-NG", {
+        style: "currency",
+        currency: "NGN"
+      }).format(amount)
+    : "—";
+};
+
+function message(value) {
+  $("message").textContent = value;
+}
+
+async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (accessToken) {
+    headers.Authorization = "Bearer " + accessToken;
+  }
+  const response = await fetch(path, { ...options, headers });
+  if (!response.ok) {
+    if (response.status === 401) {
+      accessToken = null;
+      $("dashboard").hidden = true;
+      $("login-panel").hidden = false;
+    }
+    throw new Error(
+      response.status === 401 ? "Session expired or invalid." :
+      response.status === 403 ? "Access to this business is denied." :
+      "Request failed (HTTP " + response.status + ")."
+    );
+  }
+  return response.json();
+}
+
+function fillTable(id, records, makeCells) {
+  const body = $(id);
+  body.replaceChildren();
+  if (!records.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 2;
+    cell.className = "empty";
+    cell.textContent = "No records yet";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  for (const record of records) {
+    const row = document.createElement("tr");
+    for (const value of makeCells(record)) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      row.append(cell);
+    }
+    body.append(row);
+  }
+}
+
+async function refreshDashboard() {
+  const button = $("refresh");
+  button.disabled = true;
+  message("");
+  try {
+    const base = "/api/v1/businesses/" +
+      encodeURIComponent(businessId);
+    const date = encodeURIComponent($("report-date").value);
+    const [report, directory, expenseList] = await Promise.all([
+      api(base + "/reports/daily?report_date=" + date),
+      api(base + "/customers"),
+      api(base + "/expenses")
+    ]);
+
+    $("gross-sales").textContent = money(report.gross_sales);
+    $("receipts").textContent = money(report.recorded_cash_received);
+    $("expenses-total").textContent = money(report.operating_expenses);
+    $("outstanding").textContent =
+      money(report.current_outstanding_debt);
+
+    fillTable("customers", directory.customers,
+      item => [item.name, money(item.outstanding_balance)]);
+    fillTable("expense-list", expenseList,
+      item => [item.category, money(item.amount)]);
+  } catch (error) {
+    message(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("report-date").value = new Date().toISOString().slice(0, 10);
+$("refresh").addEventListener("click", refreshDashboard);
+
+$("login-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const button = $("login-button");
+  button.disabled = true;
+  message("");
+  try {
+    businessId = $("business-id").value.trim();
+    const result = await api("/api/v1/auth/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        email: $("email").value.trim(),
+        password: $("password").value
+      })
+    });
+    accessToken = result.access_token;
+    $("password").value = "";
+    $("login-panel").hidden = true;
+    $("dashboard").hidden = false;
+    await refreshDashboard();
+  } catch (error) {
+    message(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("logout").addEventListener("click", async () => {
+  try {
+    if (accessToken) {
+      await api("/api/v1/auth/logout", { method: "POST" });
+    }
+  } catch (_) {
+    // Clear local state even if the server is unreachable.
+  } finally {
+    accessToken = null;
+    businessId = null;
+    $("dashboard").hidden = true;
+    $("login-panel").hidden = false;
+    message("Signed out of this dashboard.");
+  }
+});
+</script>
+</body>
+</html>

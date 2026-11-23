@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+from fastapi.responses import FileResponse
 from decimal import Decimal
 from typing import Annotated
 
@@ -473,6 +475,19 @@ def create_app(database_path=None):
                 business_id,
                 report_date,
             )
+        )
+
+
+    @app.get("/app", include_in_schema=False)
+    def trader_dashboard():
+        page = (
+            Path(__file__).resolve().parents[1]
+            / "web" / "index.html"
+        )
+        return FileResponse(
+            page,
+            media_type="text/html",
+            headers={"Cache-Control": "no-store"},
         )
 
     return app
