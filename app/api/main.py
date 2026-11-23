@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -531,6 +531,26 @@ def create_app(database_path=None):
                 reference,
             )
         )
+
+    @app.get("/api/v1/businesses/{business_id}/receipts")
+    def get_transaction_receipt(
+        business_id: str,
+        kind: str,
+        response: Response,
+        transaction_id: str | None = None,
+        reference: str | None = None,
+        token: str = Depends(require_token),
+    ):
+        """Read a committed receipt by kind and either transaction ID or reference."""
+        receipt = run_protected(
+            lambda: ledger.transaction_receipt(
+                token, business_id, kind, transaction_id, reference
+            )
+        )
+        if receipt is None:
+            raise HTTPException(status_code=404, detail="Receipt not found")
+        response.headers["Cache-Control"] = "no-store"
+        return receipt
 
     return app
 

@@ -99,6 +99,27 @@ select {
 }
 form.panel { margin-bottom: 0; }
 form.panel label { margin-bottom: 12px; }
+.receipt { max-width: 620px; margin: 0 auto 20px; overflow-wrap: anywhere; }
+.receipt h2 { margin-bottom: 8px; }
+.receipt dl { margin: 16px 0; }
+.receipt dl div { border-top: 1px solid #e5eae5; padding: 8px 0; }
+.receipt dt { font-weight: 650; }
+.receipt dd { margin: 3px 0 0; }
+.receipt .actions { align-items: end; }
+.receipt button { min-height: 44px; }
+
+@page { margin: 4mm; }
+@media print {
+  body > header, main > :not(#receipt-panel), .receipt-controls {
+    display: none !important;
+  }
+  :root, body { background: white; color: black; }
+  main { max-width: none; margin: 0; padding: 0; }
+  .receipt { width: 100%; max-width: 170mm; margin: 0 auto; border: 0; padding: 4mm; }
+  .receipt.narrow { max-width: 48mm; padding: 0; font-size: 10pt; }
+  .receipt p { color: black; }
+  .receipt dl div { break-inside: avoid; }
+}
 
 [hidden] { display: none !important; }
 @media (max-width: 850px) {
@@ -232,6 +253,25 @@ form.panel label { margin-bottom: 12px; }
     </div>
   </section>
 
+  <section class="panel">
+    <h2>Find a receipt</h2>
+    <form id="receipt-search">
+      <div class="fields">
+        <label>Transaction type
+          <select name="kind">
+            <option value="sale">Sale</option>
+            <option value="repayment">Customer repayment</option>
+            <option value="expense">Business expense</option>
+          </select>
+        </label>
+        <label>Transaction reference
+          <input name="reference" required maxlength="100">
+        </label>
+      </div>
+      <div class="actions"><button type="submit">View Receipt</button></div>
+    </form>
+  </section>
+
   <div class="grid">
     <div class="metric">
       <span>Gross sales</span>
@@ -268,6 +308,22 @@ form.panel label { margin-bottom: 12px; }
     </section>
   </div>
 </section>
+<section id="receipt-panel" class="panel receipt" hidden aria-labelledby="receipt-heading">
+  <h2 id="receipt-heading" tabindex="-1"></h2>
+  <p id="receipt-business"></p>
+  <p>This transaction was recorded in KudiLedger. KudiLedger has not verified an external payment.</p>
+  <dl id="receipt-details"></dl>
+  <div class="actions receipt-controls">
+    <label>Print layout
+      <select id="receipt-paper">
+        <option value="a4">A4</option>
+        <option value="narrow">Narrow roll</option>
+      </select>
+    </label>
+    <button id="receipt-print" type="button">Print Receipt</button>
+    <button id="receipt-close" type="button" class="secondary">Close Receipt</button>
+  </div>
+</section>
 <p id="message" class="message" role="status" aria-live="polite"></p>
 </main>
 <script>
@@ -275,6 +331,9 @@ form.panel label { margin-bottom: 12px; }
 
 let accessToken = null;
 let businessId = null;
+let receiptRequest = 0;
+let receiptQuery = null;
+let receiptTrigger = null;
 const financialForms = [];
 const $ = id => document.getElementById(id);
 
@@ -317,6 +376,85 @@ async function api(path, options = {}) {
     throw error;
   }
   return response.json();
+}
+
+const receiptTitles = {
+  sale: "Sale receipt",
+  repayment: "Customer repayment receipt",
+  expense: "Business expense receipt"
+};
+const receiptDate = new Intl.DateTimeFormat("en-NG", {
+  timeZone: "Africa/Lagos", dateStyle: "medium", timeStyle: "medium"
+});
+
+function hideReceipt() {
+  receiptRequest++;
+  receiptQuery = null;
+  receiptTrigger = null;
+  $("receipt-panel").hidden = true;
+  for (const id of ["receipt-heading", "receipt-business", "receipt-details"]) {
+    $(id).replaceChildren();
+  }
+}
+
+function renderReceipt(receipt) {
+  $("receipt-heading").textContent = receiptTitles[receipt.kind];
+  $("receipt-business").textContent = receipt.business_name;
+  const entries = [
+    ["Reference", receipt.reference],
+    ["Recorded in Nigeria", receiptDate.format(new Date(receipt.recorded_at_utc))],
+    [receipt.kind === "sale" ? "Sale total" : "Amount", money(receipt.amount)]
+  ];
+  if (receipt.customer_name) entries.push(["Customer", receipt.customer_name]);
+  if (receipt.kind === "sale") {
+    entries.push(["Paid at sale", money(receipt.paid_at_sale)],
+      ["Due at sale", money(receipt.due_at_sale)]);
+    if (receipt.reversed) entries.push(["Sale status", "Reversed"]);
+  } else if (receipt.kind === "expense") {
+    entries.push(["Category", receipt.category], ["Description", receipt.description]);
+  }
+  for (const [label, value] of entries) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = value;
+    row.append(term, detail);
+    $("receipt-details").append(row);
+  }
+  $("receipt-panel").hidden = false;
+}
+
+async function viewReceipt(query, trigger, print = false) {
+  if (!accessToken || !businessId) return;
+  const token = accessToken;
+  hideReceipt();
+  const request = receiptRequest;
+  message("Loading receipt…");
+  try {
+    const path = "/api/v1/businesses/" + encodeURIComponent(businessId) +
+      "/receipts?" + new URLSearchParams(query);
+    const receipt = await api(path);
+    if (request !== receiptRequest || token !== accessToken) return;
+    renderReceipt(receipt);
+    receiptQuery = query;
+    receiptTrigger = trigger;
+    message("");
+    if (print) {
+      $("receipt-panel").classList.toggle("narrow", $("receipt-paper").value === "narrow");
+      $("receipt-print").focus();
+      window.print();
+    } else {
+      $("receipt-heading").focus();
+    }
+  } catch (error) {
+    if (error.status === 401 && !accessToken) {
+      message("Sign in again to view or print receipts.");
+    } else if (request === receiptRequest && token === accessToken) {
+      message(error.status === 404 ? "Receipt not found." : error.message);
+      trigger.focus();
+    }
+  }
 }
 
 function fillTable(id, records, makeCells) {
@@ -466,6 +604,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
   const button = form.querySelector('button[type="submit"]');
   const attempts = new Map();
   let busy = false;
+  let latestReceiptId = null;
 
   const status = document.createElement("p");
   status.setAttribute("role", "status");
@@ -475,9 +614,19 @@ function connectForm(id, endpoint, makePayload, confirmation) {
   checkButton.className = "secondary";
   checkButton.textContent = "Check saved transaction";
   checkButton.hidden = true;
+  const receiptButton = document.createElement("button");
+  receiptButton.type = "button";
+  receiptButton.className = "secondary";
+  receiptButton.textContent = "View Receipt";
+  receiptButton.hidden = true;
+  receiptButton.addEventListener("click", () => {
+    if (latestReceiptId) {
+      viewReceipt({ kind, transaction_id: latestReceiptId }, receiptButton);
+    }
+  });
 
   if (kind) {
-    form.querySelector(".actions").append(checkButton);
+    form.querySelector(".actions").append(checkButton, receiptButton);
     form.append(status);
   }
 
@@ -486,6 +635,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
     button.disabled = busy || Boolean(pending);
     checkButton.disabled = busy;
     checkButton.hidden = !pending;
+    receiptButton.hidden = !latestReceiptId || busy || Boolean(pending);
     status.hidden = !pending;
     status.textContent = pending
       ? "Reference " + pending.payload.reference +
@@ -498,7 +648,10 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
   financialForms.push({
     updateButtons,
-    resetForm: () => form.reset(),
+    resetForm: () => {
+      latestReceiptId = null;
+      form.reset();
+    },
     hasPending: () => attempts.size > 0
   });
 
@@ -531,6 +684,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       if (saved.found) {
         if (sameTransaction(kind, original.payload, saved)) {
           attempts.delete(owner);
+          latestReceiptId = saved.id;
           form.reset();
           await refreshDashboard();
           if (token === accessToken) message("Transaction verified as saved.");
@@ -626,11 +780,12 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       const base = "/api/v1/businesses/" +
         encodeURIComponent(owner);
 
-      await api(base + endpoint, {
+      const result = await api(base + endpoint, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload)
       });
+      if (kind && token === accessToken) latestReceiptId = result.id;
 
       saved = true;
     } catch (error) {
@@ -690,6 +845,9 @@ function referenceFor(form) {
 function clearSession() {
   accessToken = null;
   businessId = null;
+  hideReceipt();
+  $("receipt-search").reset();
+  $("receipt-paper").value = "a4";
   $("dashboard").hidden = true;
   $("login-panel").hidden = false;
   for (const form of financialForms) {
@@ -709,6 +867,7 @@ window.addEventListener("beforeunload", event => {
     event.returnValue = true;
   }
 });
+window.addEventListener("pagehide", hideReceipt);
 
 connectForm(
   "customer-form",
@@ -778,6 +937,20 @@ const { year, month, day } = Object.fromEntries(
 );
 $("report-date").value = [year, month, day].join("-");
 $("refresh").addEventListener("click", refreshDashboard);
+$("receipt-search").addEventListener("submit", event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const { kind, reference } = formData(form);
+  viewReceipt({ kind, reference: reference.trim() }, form.querySelector("button"));
+});
+$("receipt-print").addEventListener("click", () => {
+  if (receiptQuery) viewReceipt(receiptQuery, receiptTrigger, true);
+});
+$("receipt-close").addEventListener("click", () => {
+  const trigger = receiptTrigger;
+  hideReceipt();
+  if (trigger) trigger.focus();
+});
 
 $("login-form").addEventListener("submit", async event => {
   event.preventDefault();
