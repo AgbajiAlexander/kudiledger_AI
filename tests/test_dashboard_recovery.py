@@ -22,6 +22,8 @@ def find_chromium():
 
 
 class TestDashboardRecovery(unittest.TestCase):
+    widths = (320, 360, 390, 430, 768)
+
     @unittest.skipUnless(find_chromium(), "Chromium browser is unavailable")
     def test_trader_flows_and_recovery_in_mobile_browser(self):
         page = (ROOT / "app/web/index.html").read_text(encoding="utf-8-sig")
@@ -46,13 +48,16 @@ class TestDashboardRecovery(unittest.TestCase):
             driver = root / "driver.html"
             driver.write_text(
                 '''<!doctype html><meta charset="utf-8">
-                <output id="result">waiting</output>
                 <script>
                 window.addEventListener("message", event => {
-                  document.querySelector("output").textContent = event.data;
+                  const result = document.getElementById("result-" + event.data.width);
+                  if (result) result.textContent = event.data.result;
                 });
-                </script>
-                <iframe width="360" height="800" src="dashboard.html"></iframe>''',
+                </script>''' + "".join(
+                    f'<output id="result-{width}">waiting</output>'
+                    f'<iframe width="{width}" height="800" src="dashboard.html"></iframe>'
+                    for width in self.widths
+                ),
                 encoding="utf-8",
             )
             result = subprocess.run(
@@ -69,4 +74,6 @@ class TestDashboardRecovery(unittest.TestCase):
                 check=False,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('<output id="result">PASS</output>', result.stdout)
+        for width in self.widths:
+            with self.subTest(width=width):
+                self.assertIn(f'<output id="result-{width}">PASS</output>', result.stdout)

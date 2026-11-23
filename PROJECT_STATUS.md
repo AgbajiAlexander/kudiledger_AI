@@ -5,7 +5,14 @@
 - `main` at `9142d46` contains KLD-001 through KLD-006A4B. The FastAPI application, SQLite ledger, trader dashboard and authenticated transaction lookup are already implemented. The 173-test baseline passed after allowing the test runner to access Windows temporary directories.
 - KLD-006B0 stabilization merged into `main` at `86ecd96`.
 - KLD-006B1 Africa/Lagos reporting merged into `main` at `9547e35`.
-- KLD-006B2 secure transaction receipts is on `feature/KLD-006B2-secure-receipts` for owner and technical review.
+- KLD-006B2 secure transaction receipts merged into `main` at `9eb219a`.
+- KLD-006B3 mobile trader experience is on `feature/KLD-006B3-mobile-trader-experience` for owner and technical review.
+
+## KLD-006B3 mobile dashboard
+
+- Six task views with quick actions on Overview, 44 px minimum heights for navigation and form controls, keyboard focus on view headings, and labelled native search and selection controls. The customer search covers the full directory and shows up to 50 matches at a time.
+- Existing Lagos reporting, exact kobo amounts, confirmation, business authorization, receipt printing and uncertain-write recovery use the same ledger and services. An optional reference can be assigned automatically. The relevant section identifies pending checks across navigation.
+- Automated Chrome coverage runs at 320, 360, 390, 430 and 768 px. The live synthetic review includes 390 px and 1440 px screenshots, keyboard Tab and Enter activation, and the Chrome accessibility tree. Physical phones, assistive technology sessions and printer hardware still need pilot testing.
 
 ## KLD-006B2 receipts
 
@@ -39,4 +46,4 @@
 
 ## Next milestone after review
 
-KLD-006B3 improves the mobile trader workflow. See [README.md](README.md) for startup, configuration, receipt demo and verification commands.
+KLD-006B4 extends transaction recovery beyond the open page. See [README.md](README.md) for startup, the mobile demo, and verification commands.

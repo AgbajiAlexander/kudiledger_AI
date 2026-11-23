@@ -6,114 +6,163 @@
 <title>KudiLedger AI — Trader Dashboard</title>
 <style>
 :root {
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #182c27;
-  background: #f5f7f4;
+  font: 16px/1.5 "Segoe UI", system-ui, sans-serif;
+  color: #183027;
+  background: #f4f6f1;
+  --ink: #183027;
+  --green: #176044;
+  --deep: #103d2e;
+  --muted: #506458;
+  --line: #d9e2d9;
+  --surface: #fff;
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
-header {
-  padding: 20px max(20px, calc((100% - 1080px)/2));
-  background: #14563f;
-  color: white;
+[hidden] { display: none !important; }
+:focus-visible { outline: 3px solid #a86308; outline-offset: 3px; }
+header { background: var(--deep); color: white; }
+.header-inner {
+  max-width: 1120px;
+  margin: auto;
+  padding: 15px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
-header strong { font-size: 22px; }
-header small { display: block; opacity: .85; margin-top: 4px; }
-main { max-width: 1080px; margin: 28px auto; padding: 0 20px; }
-h1 { font-size: 25px; margin: 0 0 8px; }
-h2 { font-size: 17px; margin: 0 0 15px; }
-p { color: #64716c; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #f4d58b;
+  color: var(--deep);
+  font-size: 23px;
+}
+main { max-width: 1120px; margin: auto; padding: 14px 12px 88px; }
+#login-panel { max-width: 540px; margin: 26px auto 0; }
+h1, h2 { line-height: 1.2; margin: 0 0 8px; }
+h1[tabindex], h2[tabindex] { width: fit-content; max-width: 100%; }
+h1 { font-size: clamp(1.65rem, 5vw, 2.45rem); letter-spacing: -.035em; }
+h2 { font-size: 1.2rem; }
+p { margin: 0 0 12px; color: var(--muted); }
 .panel, .metric {
-  background: white;
-  border: 1px solid #e5eae5;
-  border-radius: 15px;
-  padding: 20px;
-}
-.panel { margin-bottom: 20px; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin: 20px 0;
-}
-.metric span { color: #687771; font-size: 13px; }
-.metric strong {
-  display: block;
-  font-size: 25px;
-  margin-top: 10px;
-  overflow-wrap: anywhere;
-}
-.fields {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-}
-label { font-size: 13px; font-weight: 650; display: block; }
-input {
-  display: block;
-  width: 100%;
-  padding: 12px;
-  margin-top: 6px;
-  border: 1px solid #d2dad5;
-  border-radius: 9px;
-  font: inherit;
   min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
 }
+.panel { margin-bottom: 14px; }
+.screen-title { margin: 16px 0; overflow-wrap: anywhere; }
+.screen-title p { margin-bottom: 0; }
+.nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.nav button { color: var(--muted); background: transparent; padding: 6px 3px; }
+.nav button[aria-current="page"] { background: #dcece1; color: var(--deep); }
+.nav button[data-pending]::after { content: ""; display: inline-block; margin-left: 4px;
+  background: #a86308; width: 7px; height: 7px; border-radius: 50%; }
+.actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.quick-actions { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.quick-actions button { padding: 8px 4px; min-height: 52px; }
+.activity { margin-top: 14px; }
 button {
-  border: 0;
-  background: #166b4e;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: var(--green);
   color: white;
-  padding: 12px 19px;
-  border-radius: 9px;
   font: inherit;
   font-weight: 650;
   cursor: pointer;
 }
-button:disabled { opacity: .55; cursor: wait; }
-button.secondary { background: #e9f0eb; color: #18543e; }
-.actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
-.message { margin: 12px 0; color: #a23232; min-height: 20px; }
-.columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-}
-table { width: 100%; border-collapse: collapse; }
-th, td {
-  padding: 11px 5px;
-  text-align: left;
-  border-bottom: 1px solid #ecf0ec;
-  font-size: 14px;
-}
-th:last-child, td:last-child { text-align: right; }
-.empty { font-size: 14px; color: #7b8580; }
-select {
+button:disabled { opacity: .65; cursor: default; }
+button.secondary { background: #e7efe8; color: var(--deep); }
+#logout { background: transparent; color: white; border-color: #749486; white-space: nowrap; }
+label { display: block; font-weight: 650; min-width: 0; }
+input, select {
   display: block;
   width: 100%;
-  padding: 12px;
-  margin-top: 6px;
-  border: 1px solid #d2dad5;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  margin-top: 5px;
+  padding: 8px 10px;
+  border: 1px solid #a5b8aa;
   border-radius: 9px;
   background: white;
+  color: var(--ink);
   font: inherit;
 }
-form.panel { margin-bottom: 0; }
+.fields, .columns { display: grid; gap: 12px; min-width: 0; }
 form.panel label { margin-bottom: 12px; }
-.receipt { max-width: 620px; margin: 0 auto 20px; overflow-wrap: anywhere; }
-.receipt h2 { margin-bottom: 8px; }
+.hint { font-size: .875rem; color: var(--muted); margin-top: 4px; }
+.report-tools { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.report-tools label { flex: 1 1 145px; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.metric { padding: 12px; }
+.metric span { display: block; color: var(--muted); font-size: .88rem; }
+.metric strong { display: block; color: var(--deep); font-size: clamp(1.04rem, 4vw, 1.68rem);
+  margin-top: 4px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.metric.debt { background: #fff5db; border-color: #efdbac; }
+.report-note { font-size: .88rem; margin-top: 10px; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td { padding: 10px 4px; text-align: left; border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere; }
+th:last-child, td:last-child { text-align: right; }
+.empty { color: var(--muted); text-align: left !important; }
+.message:not(:empty) {
+  position: fixed;
+  inset: auto 12px 12px;
+  z-index: 2;
+  max-width: 620px;
+  margin: auto;
+  padding: 10px 13px;
+  border-radius: 12px;
+  border: 1px solid #91a99a;
+  background: #f9fcf9;
+  color: var(--deep);
+  box-shadow: 0 3px 12px #17382924;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.message[data-tone="error"] { color: #772928; border-color: #c78b84; background: #fff6f4; }
+#dashboard.receipt-open [data-screen] { display: none; }
+.receipt { max-width: 620px; margin: 14px auto 20px; overflow-wrap: anywhere; }
 .receipt dl { margin: 16px 0; }
-.receipt dl div { border-top: 1px solid #e5eae5; padding: 8px 0; }
+.receipt dl div { border-top: 1px solid var(--line); padding: 8px 0; }
 .receipt dt { font-weight: 650; }
 .receipt dd { margin: 3px 0 0; }
 .receipt .actions { align-items: end; }
-.receipt button { min-height: 44px; }
+@media screen {
+  .receipt dl div { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: 10px; }
+  .receipt dd { margin: 0; text-align: right; }
+}
 
+@media screen and (min-width: 640px) {
+  main { padding-inline: 22px; }
+  .header-inner { padding-inline: 22px; }
+  .nav { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .fields, .columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .panel, .metric { padding: 20px; }
+  .work-form { max-width: 620px; }
+  .screen-title { margin: 24px 0 18px; }
+}
 @page { margin: 4mm; }
 @media print {
   body > header, main > :not(#receipt-panel), .receipt-controls,
-  #receipt-panel:not(.print-authorized) {
-    display: none !important;
-  }
+  #receipt-panel:not(.print-authorized) { display: none !important; }
   :root, body { background: white; color: black; }
   main { max-width: none; margin: 0; padding: 0; }
   .receipt { width: 100%; max-width: 170mm; margin: 0 auto; border: 0; padding: 4mm; }
@@ -121,26 +170,18 @@ form.panel label { margin-bottom: 12px; }
   .receipt p { color: black; }
   .receipt dl div { break-inside: avoid; }
 }
-
-[hidden] { display: none !important; }
-@media (max-width: 850px) {
-  .grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 580px) {
-  .grid, .columns, .fields { grid-template-columns: 1fr; }
-  header { padding: 18px 20px; }
-  .metric strong { font-size: 22px; }
-}
 </style>
 </head>
 <body>
 <header>
-  <strong>KudiLedger AI</strong>
-  <small>Simple business records for everyday traders</small>
+  <div class="header-inner">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">&#8358;</span>KudiLedger</div>
+    <button id="logout" type="button" hidden>Sign out</button>
+  </div>
 </header>
 <main>
 <section id="login-panel" class="panel">
-  <h1>Welcome back</h1>
+  <h1 id="login-title" tabindex="-1">Sign in to KudiLedger</h1>
   <p>Sign in to view your business records.</p>
   <form id="login-form">
     <div class="fields">
@@ -158,64 +199,131 @@ form.panel label { margin-bottom: 12px; }
   </form>
 </section>
 
-<section id="dashboard" hidden>
-  <div class="panel">
-    <h1>Business overview</h1>
-    <p>Sales, recorded receipts and expenses reflect the selected day.
-      Current customer debts include activity across all dates.</p>
-    <div class="fields">
-      <label>Reporting date (Nigeria time)
-        <input type="date" id="report-date">
-      </label>
+<section id="dashboard" hidden aria-label="Business records">
+  <nav class="nav" aria-label="Business sections">
+    <button type="button" data-open="overview" aria-current="page">Overview</button>
+    <button type="button" data-open="customers">Customers</button>
+    <button type="button" data-open="sales">Sales</button>
+    <button type="button" data-open="repayments">Repayments</button>
+    <button type="button" data-open="expenses">Expenses</button>
+    <button type="button" data-open="receipts">Receipts</button>
+  </nav>
+
+  <section data-screen="overview" aria-labelledby="overview-title">
+    <div class="screen-title">
+      <h1 id="overview-title" tabindex="-1">Business overview</h1>
+      <p id="business-name" hidden></p>
     </div>
-    <div class="actions">
-      <button id="refresh" type="button">Refresh records</button>
-      <button id="logout" class="secondary" type="button">Log out</button>
+    <div class="quick-actions" role="group" aria-label="Quick actions">
+      <button type="button" data-open="sales">Record sale</button>
+      <button type="button" data-open="repayments">Record repayment</button>
+      <button type="button" data-open="expenses">Add expense</button>
     </div>
-  </div>
+    <section class="panel activity" aria-labelledby="daily-title">
+      <h2 id="daily-title">Business activity</h2>
+      <div class="report-tools">
+        <label>Reporting date (Nigeria time)
+          <input type="date" id="report-date" required>
+        </label>
+        <button id="refresh" class="secondary" type="button">Refresh records</button>
+      </div>
+      <p class="report-note">Sales, money received and expenses are for the selected day.</p>
+      <div class="grid" id="report-totals">
+        <div class="metric"><span>Total sales</span><strong id="gross-sales">&mdash;</strong></div>
+        <div class="metric"><span>Money received</span><strong id="receipts">&mdash;</strong></div>
+        <div class="metric"><span>Business expenses</span><strong id="expenses-total">&mdash;</strong></div>
+        <div class="metric debt"><span>Current customer debts</span><strong id="outstanding">&mdash;</strong></div>
+      </div>
+      <p class="report-note">Current customer debts include activity across all dates.</p>
+    </section>
+  </section>
 
-
-  <section class="panel">
-    <h2>Quick actions</h2>
-    <p>Confirm each transaction before it is saved.</p>
-
+  <section data-screen="customers" hidden aria-labelledby="customers-title">
+    <div class="screen-title"><h1 id="customers-title" tabindex="-1">Customers</h1></div>
     <div class="columns">
-      <form id="customer-form" class="panel">
-        <h2>Add customer</h2>
-        <label>Customer name
-          <input name="name" required maxlength="150">
+      <section class="panel" aria-labelledby="customer-add-title">
+        <h2 id="customer-add-title">Add a customer</h2>
+        <form id="customer-form">
+          <label>Customer name
+            <input name="name" required maxlength="150">
+          </label>
+          <div class="actions">
+            <button type="submit">Save customer</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel" aria-labelledby="customer-list-title">
+        <h2 id="customer-list-title">Find a customer</h2>
+        <label>Search by name
+          <input id="customer-search" type="search" autocomplete="off" aria-controls="customers">
         </label>
-        <div class="actions">
-          <button type="submit">Save customer</button>
-        </div>
-      </form>
+        <p id="customer-count" class="hint" role="status"></p>
+        <table aria-labelledby="customer-list-title">
+          <thead><tr><th scope="col">Name</th><th scope="col">Amount owed</th></tr></thead>
+          <tbody id="customers"></tbody>
+        </table>
+      </section>
+    </div>
+  </section>
 
-      <form id="sale-form" class="panel">
-        <h2>Record sale</h2>
-        <label>Customer
-          <select name="customer_id" class="customer-select"
-                  required></select>
-        </label>
-        <label>Sale reference
-          <input name="reference" required maxlength="100">
-        </label>
-        <label>Total amount (NGN)
-          <input name="total" type="number" required
-                 min="0.01" step="0.01">
-        </label>
-        <label>Already paid (NGN)
-          <input name="paid" type="number" required
-                 min="0" step="0.01" value="0">
-        </label>
-        <div class="actions">
-          <button type="submit">Record sale</button>
-        </div>
-      </form>
-
-      <form id="expense-form" class="panel">
-        <h2>Record expense</h2>
-        <label>Reference
-          <input name="reference" required maxlength="100">
+  <section data-screen="sales" hidden aria-labelledby="sales-title">
+    <div class="screen-title"><h1 id="sales-title" tabindex="-1">Record a sale</h1></div>
+    <form id="sale-form" class="panel work-form">
+      <label>Find a customer
+        <input type="search" class="customer-filter" placeholder="Type a name"
+               autocomplete="off" aria-controls="sale-customer">
+      </label>
+      <label>Customer
+        <select id="sale-customer" name="customer_id" class="customer-select"
+                required aria-describedby="sale-customer-hint"></select>
+      </label>
+      <p id="sale-customer-hint" class="hint customer-hint" role="status"></p>
+      <label>Reference (optional)
+        <input name="reference" placeholder="Made for you if left blank" maxlength="100">
+      </label>
+      <label>Sale total (&#8358;)
+        <input name="total" type="number" inputmode="decimal" required
+               min="0.01" step="0.01">
+      </label>
+      <label>Already paid (&#8358;)
+        <input name="paid" type="number" inputmode="decimal" required
+               min="0" step="0.01" value="0">
+      </label>
+      <div class="actions">
+        <button type="submit">Record sale</button>
+      </div>
+    </form>
+  </section>
+  <section data-screen="repayments" hidden aria-labelledby="repayments-title">
+    <div class="screen-title"><h1 id="repayments-title" tabindex="-1">Record a debt repayment</h1></div>
+    <form id="repayment-form" class="panel work-form">
+      <label>Find a customer
+        <input type="search" class="customer-filter" placeholder="Type a name"
+               autocomplete="off" aria-controls="repayment-customer">
+      </label>
+      <label>Customer
+        <select id="repayment-customer" name="customer_id" class="customer-select"
+                required aria-describedby="repayment-customer-hint"></select>
+      </label>
+      <p id="repayment-customer-hint" class="hint customer-hint" role="status"></p>
+      <label>Reference (optional)
+        <input name="reference" placeholder="Made for you if left blank" maxlength="100">
+      </label>
+      <label>Amount received (&#8358;)
+        <input name="amount" type="number" inputmode="decimal" required
+               min="0.01" step="0.01">
+      </label>
+      <div class="actions">
+        <button type="submit">Save repayment</button>
+      </div>
+    </form>
+  </section>
+  <section data-screen="expenses" hidden aria-labelledby="expenses-title">
+    <div class="screen-title"><h1 id="expenses-title" tabindex="-1">Record an expense</h1></div>
+    <div class="columns">
+      <form id="expense-form" class="panel work-form">
+        <label>Reference (optional)
+          <input name="reference" placeholder="Made for you if left blank" maxlength="100">
         </label>
         <label>Category
           <input name="category" required minlength="2"
@@ -225,38 +333,26 @@ form.panel label { margin-bottom: 12px; }
           <input name="description" required minlength="3"
                  maxlength="500">
         </label>
-        <label>Amount (NGN)
-          <input name="amount" type="number" required
+        <label>Amount spent (&#8358;)
+          <input name="amount" type="number" inputmode="decimal" required
                  min="0.01" step="0.01">
         </label>
         <div class="actions">
           <button type="submit">Save expense</button>
         </div>
       </form>
-
-      <form id="repayment-form" class="panel">
-        <h2>Receive debt repayment</h2>
-        <label>Customer
-          <select name="customer_id" class="customer-select"
-                  required></select>
-        </label>
-        <label>Reference
-          <input name="reference" required maxlength="100">
-        </label>
-        <label>Amount received (NGN)
-          <input name="amount" type="number" required
-                 min="0.01" step="0.01">
-        </label>
-        <div class="actions">
-          <button type="submit">Save repayment</button>
-        </div>
-      </form>
+      <section class="panel" aria-labelledby="expense-list-title">
+        <h2 id="expense-list-title">Recorded expenses</h2>
+        <table aria-labelledby="expense-list-title">
+          <thead><tr><th scope="col">Category</th><th scope="col">Amount</th></tr></thead>
+          <tbody id="expense-list"></tbody>
+        </table>
+      </section>
     </div>
   </section>
-
-  <section class="panel">
-    <h2>Find a receipt</h2>
-    <form id="receipt-search">
+  <section data-screen="receipts" hidden aria-labelledby="receipts-title">
+    <div class="screen-title"><h1 id="receipts-title" tabindex="-1">Find a receipt</h1></div>
+        <form id="receipt-search" class="panel work-form">
       <div class="fields">
         <label>Transaction type
           <select name="kind">
@@ -272,48 +368,11 @@ form.panel label { margin-bottom: 12px; }
       <div class="actions"><button type="submit">View Receipt</button></div>
     </form>
   </section>
-
-  <div class="grid">
-    <div class="metric">
-      <span>Gross sales</span>
-      <strong id="gross-sales">—</strong>
-    </div>
-    <div class="metric">
-      <span>Recorded receipts</span>
-      <strong id="receipts">—</strong>
-    </div>
-    <div class="metric">
-      <span>Operating expenses</span>
-      <strong id="expenses-total">—</strong>
-    </div>
-    <div class="metric">
-      <span>Current customer debts</span>
-      <strong id="outstanding">—</strong>
-    </div>
-  </div>
-
-  <div class="columns">
-    <section class="panel">
-      <h2>Customers</h2>
-      <table>
-        <thead><tr><th>Name</th><th>Debt</th></tr></thead>
-        <tbody id="customers"></tbody>
-      </table>
-    </section>
-    <section class="panel">
-      <h2>Expenses</h2>
-      <table>
-        <thead><tr><th>Category</th><th>Amount</th></tr></thead>
-        <tbody id="expense-list"></tbody>
-      </table>
-    </section>
-  </div>
 </section>
 <section id="receipt-panel" class="panel receipt" hidden aria-labelledby="receipt-heading">
   <h2 id="receipt-heading" tabindex="-1"></h2>
   <p id="receipt-business"></p>
   <p>This transaction was recorded in KudiLedger. KudiLedger has not verified an external payment.</p>
-  <dl id="receipt-details"></dl>
   <div class="actions receipt-controls">
     <label>Print layout
       <select id="receipt-paper">
@@ -324,6 +383,7 @@ form.panel label { margin-bottom: 12px; }
     <button id="receipt-print" type="button">Print Receipt</button>
     <button id="receipt-close" type="button" class="secondary">Close Receipt</button>
   </div>
+  <dl id="receipt-details"></dl>
 </section>
 <p id="message" class="message" role="status" aria-live="polite"></p>
 </main>
@@ -335,6 +395,8 @@ let businessId = null;
 let receiptRequest = 0;
 let receiptQuery = null;
 let receiptTrigger = null;
+let customerDirectory = [];
+let dashboardRequest = 0;
 const financialForms = [];
 const $ = id => document.getElementById(id);
 
@@ -353,8 +415,27 @@ function money(value) {
     .join("");
 }
 
-function message(value) {
-  $("message").textContent = value;
+function message(value, tone = "") {
+  const status = $("message");
+  status.dataset.tone = tone;
+  status.textContent = value;
+}
+
+function openScreen(name, focus = true) {
+  hideReceipt();
+  message("");
+  for (const screen of document.querySelectorAll("[data-screen]")) {
+    screen.hidden = screen.dataset.screen !== name;
+    if (!screen.hidden && focus) screen.querySelector("h1").focus();
+  }
+  for (const button of document.querySelectorAll(".nav [data-open]")) {
+    if (button.dataset.open === name) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+}
+
+for (const button of document.querySelectorAll("[data-open]")) {
+  button.addEventListener("click", () => openScreen(button.dataset.open));
 }
 
 async function api(path, options = {}) {
@@ -369,8 +450,12 @@ async function api(path, options = {}) {
       clearSession();
     }
     const error = new Error(
-      response.status === 401 ? "Session expired or invalid." :
+      response.status === 401 ? (path === "/api/v1/auth/login"
+        ? "Check your email and password and try again."
+        : "Your session has ended. Sign in again.") :
       response.status === 403 ? "Access to this business is denied." :
+      response.status === 429 ? "Too many sign-in attempts. Try again later." :
+      response.status === 400 || response.status === 422 ? "Check the details you entered." :
       "Request failed (HTTP " + response.status + ")."
     );
     error.status = response.status;
@@ -392,6 +477,7 @@ function hideReceipt() {
   receiptRequest++;
   receiptQuery = null;
   receiptTrigger = null;
+  $("dashboard").classList.remove("receipt-open");
   $("receipt-panel").hidden = true;
   $("receipt-panel").classList.remove("print-authorized");
   for (const id of ["receipt-heading", "receipt-business", "receipt-details"]) {
@@ -424,6 +510,7 @@ function renderReceipt(receipt) {
     row.append(term, detail);
     $("receipt-details").append(row);
   }
+  $("dashboard").classList.add("receipt-open");
   $("receipt-panel").hidden = false;
 }
 
@@ -455,13 +542,13 @@ async function viewReceipt(query, trigger, print = false) {
     if (error.status === 401 && !accessToken) {
       message("Sign in again to view or print receipts.");
     } else if (request === receiptRequest && token === accessToken) {
-      message(error.status === 404 ? "Receipt not found." : error.message);
+      message(error.status === 404 ? "Receipt not found." : error.message, "error");
       trigger.focus();
     }
   }
 }
 
-function fillTable(id, records, makeCells) {
+function fillTable(id, records, makeCells, emptyMessage = "No records yet") {
   const body = $(id);
   body.replaceChildren();
   if (!records.length) {
@@ -469,7 +556,7 @@ function fillTable(id, records, makeCells) {
     const cell = document.createElement("td");
     cell.colSpan = 2;
     cell.className = "empty";
-    cell.textContent = "No records yet";
+    cell.textContent = emptyMessage;
     row.append(cell);
     body.append(row);
     return;
@@ -487,9 +574,12 @@ function fillTable(id, records, makeCells) {
 
 async function refreshDashboard() {
   const token = accessToken;
+  if (!token) return;
+  const request = ++dashboardRequest;
   const button = $("refresh");
   button.disabled = true;
-  message("");
+  button.textContent = "Refreshing…";
+  $("report-totals").setAttribute("aria-busy", "true");
   try {
     const base = "/api/v1/businesses/" +
       encodeURIComponent(businessId);
@@ -499,7 +589,7 @@ async function refreshDashboard() {
       api(base + "/customers"),
       api(base + "/expenses")
     ]);
-    if (token !== accessToken) return;
+    if (token !== accessToken || request !== dashboardRequest) return;
 
     $("gross-sales").textContent = money(report.gross_sales);
     $("receipts").textContent = money(report.recorded_cash_received);
@@ -507,41 +597,67 @@ async function refreshDashboard() {
     $("outstanding").textContent =
       money(report.current_outstanding_debt);
 
-    fillTable("customers", directory.customers,
-      item => [item.name, money(item.outstanding_balance)]);
     populateCustomerSelects(directory.customers);
     fillTable("expense-list", expenseList,
       item => [item.category, money(item.amount)]);
   } catch (error) {
-    if (token === accessToken || !accessToken) message(error.message);
+    if (request === dashboardRequest && (token === accessToken || !accessToken)) {
+      message(error.message, "error");
+    }
   } finally {
-    button.disabled = false;
+    if (request === dashboardRequest) {
+      button.disabled = false;
+      button.textContent = "Refresh records";
+      $("report-totals").removeAttribute("aria-busy");
+    }
   }
 }
 
+const customerLimit = 50;
+
+function matchingCustomers(query) {
+  const name = query.trim().toLocaleLowerCase("en-NG");
+  return customerDirectory.filter(customer =>
+    customer.name.toLocaleLowerCase("en-NG").includes(name));
+}
+
+function customerCount(count) {
+  if (!count) return customerDirectory.length ? "No matching customers." : "Add a customer first.";
+  if (count > customerLimit) return "Showing " + customerLimit + " of " + count + ". Search to narrow the list.";
+  return count + (count === 1 ? " customer" : " customers");
+}
+
+function filterCustomerSelect(search) {
+  const select = $(search.getAttribute("aria-controls"));
+  const selected = customerDirectory.find(customer => customer.id === select.value);
+  const matches = matchingCustomers(search.value);
+  const shown = matches.slice(0, customerLimit);
+  select.replaceChildren(new Option("Select customer", ""));
+  if (selected && !shown.includes(selected)) {
+    select.add(new Option(selected.name + " (selected)", selected.id));
+  }
+  for (const customer of shown) select.add(new Option(customer.name, customer.id));
+  if (selected) select.value = selected.id;
+  $(select.getAttribute("aria-describedby")).textContent = customerCount(matches.length);
+}
+
+function filterCustomerDirectory() {
+  const matches = matchingCustomers($("customer-search").value);
+  $("customer-count").textContent = customerCount(matches.length);
+  fillTable("customers", matches.slice(0, customerLimit),
+    item => [item.name, money(item.outstanding_balance)], "No customers to show");
+}
+
+const customerFilters = document.querySelectorAll(".customer-filter");
+for (const search of customerFilters) {
+  search.addEventListener("input", () => filterCustomerSelect(search));
+}
+$("customer-search").addEventListener("input", filterCustomerDirectory);
 
 function populateCustomerSelects(customers) {
-  for (const select of
-       document.querySelectorAll(".customer-select")) {
-    const previous = select.value;
-    select.replaceChildren();
-
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Select customer";
-    select.append(placeholder);
-
-    for (const customer of customers) {
-      const option = document.createElement("option");
-      option.value = customer.id;
-      option.textContent = customer.name;
-      select.append(option);
-    }
-
-    if (customers.some(customer => customer.id === previous)) {
-      select.value = previous;
-    }
-  }
+  customerDirectory = customers;
+  for (const search of customerFilters) filterCustomerSelect(search);
+  filterCustomerDirectory();
 }
 
 function formData(form) {
@@ -549,7 +665,8 @@ function formData(form) {
 }
 
 function transactionReference() {
-  return "WEB-" + crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return "WEB-" + Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
 
@@ -606,8 +723,11 @@ function connectForm(id, endpoint, makePayload, confirmation) {
   }[endpoint] || null;
 
   const button = form.querySelector('button[type="submit"]');
+  const buttonLabel = button.textContent;
+  const screen = form.closest("[data-screen]").dataset.screen;
+  const navButton = document.querySelector(`.nav [data-open="${screen}"]`);
   const attempts = new Map();
-  let busy = false;
+  let busy = "";
   let latestReceiptId = null;
 
   const status = document.createElement("p");
@@ -636,10 +756,17 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
   function updateButtons() {
     const pending = attempts.get(businessId);
-    button.disabled = busy || Boolean(pending);
-    checkButton.disabled = busy;
+    button.disabled = Boolean(busy || pending);
+    button.textContent = busy === "saving" ? "Saving…" : buttonLabel;
+    checkButton.disabled = Boolean(busy);
+    checkButton.textContent = busy === "checking" ? "Checking…" : "Check saved transaction";
     checkButton.hidden = !pending;
     receiptButton.hidden = !latestReceiptId || busy || Boolean(pending);
+    if (navButton) {
+      navButton.toggleAttribute("data-pending", Boolean(pending));
+      if (pending) navButton.setAttribute("aria-label", navButton.textContent + ", check pending record");
+      else navButton.removeAttribute("aria-label");
+    }
     status.hidden = !pending;
     status.textContent = pending
       ? "Reference " + pending.payload.reference +
@@ -650,11 +777,17 @@ function connectForm(id, endpoint, makePayload, confirmation) {
     }
   }
 
+  function resetForm() {
+    form.reset();
+    const search = form.querySelector(".customer-filter");
+    if (search) filterCustomerSelect(search);
+  }
+
   financialForms.push({
     updateButtons,
     resetForm: () => {
       latestReceiptId = null;
-      form.reset();
+      resetForm();
     },
     hasPending: () => attempts.size > 0
   });
@@ -664,8 +797,9 @@ function connectForm(id, endpoint, makePayload, confirmation) {
     const token = accessToken;
     const original = attempts.get(owner);
     if (busy || !original || !token) return;
-    busy = true;
+    busy = "checking";
     updateButtons();
+    message("Checking whether the record was saved…");
 
     try {
       const base = "/api/v1/businesses/" +
@@ -689,7 +823,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
         if (sameTransaction(kind, original.payload, saved)) {
           attempts.delete(owner);
           latestReceiptId = saved.id;
-          form.reset();
+          resetForm();
           await refreshDashboard();
           if (token === accessToken) message("Transaction verified as saved.");
         } else {
@@ -729,7 +863,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
         "Do not submit again. " + error.message
       );
     } finally {
-      busy = false;
+      busy = "";
       updateButtons();
     }
   }
@@ -764,7 +898,9 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       const paid = kind === "sale" ? cents(payload.paid) : 0n;
       if (amount === null || amount <= 0n || amount > maxKobo ||
           paid === null || paid > amount) {
-        message("Enter valid naira amounts with up to two decimal places.");
+        message(paid !== null && amount !== null && paid > amount
+          ? "The amount already paid cannot be more than the sale total."
+          : "Enter a valid naira amount with up to two decimal places.", "error");
         return;
       }
     }
@@ -773,9 +909,9 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
     const attempt = { payload, errorStatus: null };
     if (kind) attempts.set(owner, attempt);
-    busy = true;
+    busy = "saving";
     updateButtons();
-    message("");
+    message("Saving record…");
 
     let saved = false;
     let submissionError = null;
@@ -796,7 +932,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       submissionError = error;
       attempt.errorStatus = error.status || null;
     } finally {
-      busy = false;
+      busy = "";
       if (saved || [401, 403].includes(attempt.errorStatus)) {
         attempts.delete(owner);
       }
@@ -810,7 +946,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       return;
     }
     if (saved) {
-      form.reset();
+      resetForm();
       await refreshDashboard();
       if (token === accessToken) message("Record saved successfully.");
       return;
@@ -853,7 +989,12 @@ function clearSession() {
   $("receipt-search").reset();
   $("receipt-paper").value = "a4";
   $("dashboard").hidden = true;
+  $("logout").hidden = true;
+  $("business-name").textContent = "";
+  $("business-name").hidden = true;
+  $("customer-search").value = "";
   $("login-panel").hidden = false;
+  $("login-title").focus();
   for (const form of financialForms) {
     form.resetForm();
     form.updateButtons();
@@ -943,7 +1084,9 @@ const { year, month, day } = Object.fromEntries(
   lagosCalendar.formatToParts(new Date()).map(({ type, value }) => [type, value])
 );
 $("report-date").value = [year, month, day].join("-");
-$("refresh").addEventListener("click", refreshDashboard);
+$("refresh").addEventListener("click", () => {
+  if ($("report-date").reportValidity()) refreshDashboard();
+});
 $("receipt-search").addEventListener("submit", event => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -963,7 +1106,8 @@ $("login-form").addEventListener("submit", async event => {
   event.preventDefault();
   const button = $("login-button");
   button.disabled = true;
-  message("");
+  button.textContent = "Signing in…";
+  message("Signing in…");
   try {
     const result = await api("/api/v1/auth/login", {
       method: "POST",
@@ -988,14 +1132,19 @@ $("login-form").addEventListener("submit", async event => {
     }
 
     businessId = businesses[0].id;
+    $("business-name").textContent = businesses[0].name || "";
+    $("business-name").hidden = !$("business-name").textContent;
     financialForms.forEach(form => form.updateButtons());
     $("login-panel").hidden = true;
     $("dashboard").hidden = false;
+    $("logout").hidden = false;
+    openScreen("overview");
     await refreshDashboard();
   } catch (error) {
-    message(error.message);
+    message(error.message, "error");
   } finally {
     button.disabled = false;
+    button.textContent = "Sign in";
   }
 });
 
