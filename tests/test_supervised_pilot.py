@@ -93,6 +93,12 @@ class TestSupervisedPilot(unittest.TestCase):
                 audit = request("GET", f"/operator/recovery/{collision}/audit", 200)
                 self.assertEqual(audit[0]["id"], action["audit_id"])
 
+                client.post("/api/v1/auth/password-reset", json={"email": email})
+                with ledger.connect() as db:
+                    security_events = [tuple(row) for row in db.execute(
+                        "SELECT event, user_id, created_at FROM account_security_audit ORDER BY id",
+                    )]
+                    self.assertEqual(db.execute("SELECT count(*) FROM account_links").fetchone()[0], 1)
                 snapshot = scheduled_backup(database, root)
                 backup = root / snapshot["file"]
                 self.assertEqual(backup.with_suffix(".sha256").read_text().strip(), snapshot["sha256"])
@@ -107,4 +113,7 @@ class TestSupervisedPilot(unittest.TestCase):
                 with replica.connect() as db:
                     self.assertEqual(db.execute("SELECT count(*) FROM sales").fetchone()[0], 1)
                     self.assertEqual(db.execute("SELECT count(*) FROM account_links").fetchone()[0], 0)
+                    self.assertEqual([tuple(row) for row in db.execute(
+                        "SELECT event, user_id, created_at FROM account_security_audit ORDER BY id",
+                    )], security_events)
         print("Synthetic acceptance restored NGN 74.99 debt, one sale, and the collision decision.")

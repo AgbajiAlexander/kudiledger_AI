@@ -1,0 +1,100 @@
+name: Release candidate checks
+
+on:
+  push:
+    branches: [main, 'feature/**']
+    tags: ['rc-*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Full suite and staging browser
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      KUDILEDGER_REQUIRE_HTTPS: '0'
+      KUDILEDGER_REQUIRE_STAGING_BROWSER: '1'
+      KUDILEDGER_MAIL_MODE: 'off'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13.18'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24.22.3'
+      - name: Install pinned packages and verify staging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt
+          python -m pip check
+          command -v google-chrome
+          openssl version
+          work="$(mktemp -d)"
+          archive=caddy_2.11.9_linux_amd64.tar.gz
+          curl --fail --silent --show-error --location --retry 2 \
+            "https://github.com/caddyserver/caddy/releases/download/v2.11.9/$archive" \
+            --output "$work/$archive"
+          echo "0e85544340290a16ce4bfb76fe7d65e9de1bf3a6e67f5ccfff30b30d27ea4c73e078077b7bf3e58ae60b6b12e44327705287059c775bca5782e8ee85ea7edd75  $work/$archive" | sha512sum --check
+          tar -xzf "$work/$archive" -C "$work" caddy
+          echo "KUDILEDGER_CADDY=$work/caddy" >> "$GITHUB_ENV"
+          echo "KUDILEDGER_DB=$work/import-only.sqlite" >> "$GITHUB_ENV"
+          "$work/caddy" version
+          KUDILEDGER_SITE=https://localhost:9443 KUDILEDGER_HTTP_PORT=9080 \
+            "$work/caddy" validate --config deploy/staging/Caddyfile --adapter caddyfile
+          bash scripts/check_staging_units.sh
+      - name: Run full synthetic suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in tests/test_dashboard_recovery.js tests/test_browser_persistent_recovery.js tests/test_tls_staging.js; do
+            node --check "$script"
+          done
+          mkdir -p "$RUNNER_TEMP/rc-evidence"
+          python -m unittest discover -v 2>&1 | tee "$RUNNER_TEMP/rc-evidence/unittest.log"
+          if grep -E 'skipped |^OK \(skipped=' "$RUNNER_TEMP/rc-evidence/unittest.log"; then
+            echo "The release suite must run all browser and staging tests"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: rc-test-results
+          path: ${{ runner.temp }}/rc-evidence/unittest.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  security:
+    name: Dependency and tracked-file checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.13.18'
+      - run: python scripts/check_release_files.py
+      - run: python -m pip install pip-audit==2.10.1
+      - run: python -m pip_audit -r requirements.txt --no-deps --disable-pip
+
+  release-gate:
+    name: release-gate
+    runs-on: ubuntu-24.04
+    needs: [tests, security]
+    if: always()
+    steps:
+      - name: Require successful test and security jobs
+        env:
+          TESTS: ${{ needs.tests.result }}
+          SECURITY: ${{ needs.security.result }}
+        run: test "$TESTS" = success && test "$SECURITY" = success

@@ -79,10 +79,29 @@ class IdentityLedger(PilotLedger):
         with self._using_connection(immediate=True) as db:
             if db.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
                 raise ValueError("An account already exists for this address")
-            db.execute("DELETE FROM account_links WHERE purpose = 'invite' AND email = ?", (email,))
             token = self._issue_link(db, "invite", email, 24 * 3600, business_name=business_name)
             self.audit_account(db, "invite_issued")
         return token
+
+    def confirm_invite_delivery(self, token):
+        with self._using_connection(immediate=True) as db:
+            delivered = db.execute(
+                "SELECT rowid, email FROM account_links WHERE purpose = 'invite' AND token_hash = ?",
+                (digest(token),),
+            ).fetchone()
+            if delivered:
+                db.execute(
+                    "DELETE FROM account_links WHERE purpose = 'invite' AND email = ? AND rowid < ?",
+                    (delivered["email"], delivered["rowid"]),
+                )
+
+    def fail_account_link_delivery(self, purpose, token):
+        with self._using_connection(immediate=True) as db:
+            row = db.execute(
+                "DELETE FROM account_links WHERE purpose = ? AND token_hash = ? RETURNING user_id",
+                (purpose, digest(token)),
+            ).fetchone()
+            self.audit_account(db, "account_link_delivery_failed", row["user_id"] if row else None)
 
     def request_password_reset(self, email):
         try:
@@ -113,6 +132,7 @@ class IdentityLedger(PilotLedger):
                 account = self.register_owner(
                     row["business_name"], row["email"], password, _db=db,
                 )
+                db.execute("DELETE FROM account_links WHERE purpose = 'invite' AND email = ?", (row["email"],))
                 self.audit_account(db, "email_verified", account["user_id"])
             else:
                 user_id = row["user_id"]

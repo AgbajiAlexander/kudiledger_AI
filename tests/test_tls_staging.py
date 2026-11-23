@@ -134,11 +134,13 @@ class TestTLSStaging(unittest.TestCase):
                 self.fail("Chromium, Node and OpenSSL are required for the staging browser test")
 
             # The edge must replace client-supplied addresses before rate limiting.
-            for index in range(9):
+            browser_ran = bool(find_chromium() and find_openssl() and shutil.which("node"))
+            available = 7 if browser_ran else 8
+            for index in range(available + 1):
                 status, _ = https("/api/v1/auth/password-reset", method="POST", headers={
                     "Content-Type": "application/json", "X-Forwarded-For": f"192.0.2.{index + 1}",
                 }, body=json.dumps({"email": f"unknown-{index}@example.test"}))
-                self.assertEqual(status, 202 if index < 8 else 429)
+                self.assertEqual(status, 202 if index < available else 429)
 
     def browser(self, cleanup, root, context, port, database, outbox, mail):
         with socket.create_connection(("localhost", port), timeout=3) as connection:
@@ -164,7 +166,8 @@ class TestTLSStaging(unittest.TestCase):
         details = wait_for(lambda: debugger.read_text().splitlines())
         result = subprocess.run(
             ["node", str(Path(__file__).with_suffix(".js"))],
-            input=json.dumps({"debugPort": details[0], "invitation": captured["link"], "email": email}),
+            input=json.dumps({"debugPort": details[0], "invitation": captured["link"], "email": email,
+                              "outbox": str(outbox), "screenshots": os.environ.get("KUDILEDGER_RC_SCREENSHOTS", "")}),
             capture_output=True, text=True, encoding="utf-8", timeout=45, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

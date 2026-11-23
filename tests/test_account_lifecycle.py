@@ -1,15 +1,17 @@
 ﻿import json
+import os
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
-from app.operations.staging import invite
-from app.services.account_mail import AccountMail
+from app.operations.staging import invite, monitor
+from app.services.account_mail import AccountMail, private_path
 from app.services.identity import digest
 from app.services.telemetry import StagingLedger
 
@@ -133,3 +135,46 @@ class TestAccountLifecycle(unittest.TestCase):
         self.assertCountEqual([result.status_code for result in results], [200, 400])
         password = next(value for value, result in zip(passwords, results) if result.status_code == 200)
         self.assertEqual(self.login(password).status_code, 200)
+
+    def test_failed_invite_delivery_preserves_last_working_link(self):
+        token = self.issue()
+        with patch.object(self.mail, "send", side_effect=OSError("Synthetic secret in the mail transport")):
+            with self.assertRaisesRegex(RuntimeError, "^Invitation delivery failed$"):
+                invite(self.database, self.email, "Synthetic Pilot Market", self.mail)
+        self.assertEqual(len(self.captured("invite")), 1)
+        with self.ledger.connect() as db:
+            self.assertEqual([row[0] for row in db.execute("SELECT token_hash FROM account_links")], [digest(token)])
+        self.assertEqual(self.complete("invite/complete", token, self.old_password).status_code, 200)
+
+    def test_failed_reset_delivery_preserves_previous_link_and_alerts_without_leaks(self):
+        self.assertEqual(self.complete("invite/complete", self.issue(), self.old_password).status_code, 200)
+        endpoint = "/api/v1/auth/password-reset"
+        self.client.post(endpoint, json={"email": self.email})
+        previous = self.captured("reset")[0]["link"].split("#reset=")[1]
+        secret = "Synthetic SMTP credential"
+        with patch.object(self.mail, "send", side_effect=OSError(secret)), self.assertLogs(
+            "kudiledger.operations",
+        ) as output:
+            failed = self.client.post(endpoint, json={"email": self.email})
+        self.assertEqual(failed.status_code, 202)
+        self.assertNotIn(secret, "\n".join(output.output))
+        self.assertNotIn(self.email, "\n".join(output.output))
+        with self.ledger.connect() as db:
+            self.assertEqual([row[0] for row in db.execute("SELECT token_hash FROM account_links")],
+                             [digest(previous)])
+        with patch("app.operations.staging.check_health", return_value=True):
+            alerts = monitor(self.database, "https://pilot.example.test")["alerts"]
+        self.assertIn("account_mail_delivery", alerts)
+        self.assertEqual(self.complete("password-reset/complete", previous, self.new_password).status_code, 200)
+
+    def test_private_staging_paths_exclude_repo_and_posix_group_access(self):
+        with self.assertRaises(ValueError):
+            private_path(Path(__file__))
+        if os.name == "posix":
+            self.outbox.chmod(0o700)
+        self.assertEqual(private_path(self.outbox), self.outbox.resolve())
+        if os.name == "posix":
+            self.outbox.chmod(0o750)
+            with self.assertRaisesRegex(ValueError, "group and other"):
+                private_path(self.outbox)
+            self.outbox.chmod(0o700)
