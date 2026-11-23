@@ -1,9 +1,9 @@
-﻿import tempfile
+import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
-from app.services.reports import ReportLedger
+from app.services.reports import LAGOS, ReportLedger
 
 
 class TestDailyReports(unittest.TestCase):
@@ -28,7 +28,7 @@ class TestDailyReports(unittest.TestCase):
         self.customer = self.ledger.add_customer(
             self.token, self.business, "Musa"
         )
-        self.today = datetime.now(timezone.utc).date().isoformat()
+        self.today = datetime.now(LAGOS).date().isoformat()
 
     def report(self):
         return self.ledger.daily_summary(
@@ -95,7 +95,7 @@ class TestDailyReports(unittest.TestCase):
         self.assertEqual(result["current_outstanding_debt"], "0")
 
     def test_invalid_date_rejected(self):
-        for value in ("2026-02-30", "23-11-2026", "abc"):
+        for value in ("2026-02-30", "23-11-2026", "abc", "0001-01-01", "9999-12-31"):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     self.ledger.daily_summary(
@@ -132,6 +132,69 @@ class TestDailyReports(unittest.TestCase):
         self.assertEqual(result["gross_sales"], "0")
         self.assertEqual(result["paid_at_sale"], "0")
         self.assertEqual(result["current_outstanding_debt"], "10000")
+
+    def insert_utc_activity(self, stamp, price_kobo):
+        with self.ledger.connect() as db:
+            for sale_type, paid in (("credit", price_kobo // 4), ("reversed", 0)):
+                sale_id = f"{stamp}-{sale_type}"
+                db.execute(
+                    """INSERT INTO sales
+                       (id, business_id, customer_id, sale_reference,
+                        total_kobo, paid_kobo, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (sale_id, self.business, self.customer, sale_id, price_kobo, paid, stamp),
+                )
+            db.execute(
+                """INSERT INTO repayments
+                   (id, business_id, customer_id, repayment_reference, amount_kobo, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (stamp, self.business, self.customer, stamp, price_kobo // 10, stamp),
+            )
+            db.execute(
+                """INSERT INTO expenses
+                   (id, business_id, expense_reference, category, description, amount_kobo, created_at)
+                   VALUES (?, ?, ?, 'Transport', 'Synthetic delivery', ?, ?)""",
+                (stamp, self.business, stamp, price_kobo // 5, stamp),
+            )
+            db.execute(
+                """INSERT INTO sale_reversals
+                   (id, business_id, sale_id, reversal_reference, amount_kobo, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'Synthetic correction', ?)""",
+                (stamp, self.business, f"{stamp}-reversed", stamp, price_kobo, stamp),
+            )
+
+    def test_all_activity_at_lagos_calendar_boundaries(self):
+        cases = (
+            ("2026-04-30", "2026-05-01"),
+            ("2025-12-31", "2026-01-01"),
+            ("2024-02-28", "2024-02-29"),
+            ("2020-02-29", "2020-03-01"),
+        )
+        for before_day, after_day in cases:
+            with self.subTest(before=before_day, after=after_day):
+                before = f"{before_day} 22:59:59"
+                boundary = f"{before_day} 23:00:00"
+                self.insert_utc_activity(before, 10000)
+                self.insert_utc_activity(boundary, 20000)
+                self.insert_utc_activity(f"{before_day} 23:00:01", 20000)
+
+                earlier = self.ledger.daily_summary(self.token, self.business, before_day)
+                later = self.ledger.daily_summary(self.token, self.business, after_day)
+                expected = {
+                    "sales_count": (2, 4), "repayments_count": (1, 2),
+                    "expenses_count": (1, 2), "reversals_count": (1, 2),
+                    "gross_sales": ("200", "800"), "repayments_received": ("10", "40"),
+                    "recorded_cash_received": ("35", "140"),
+                    "operating_expenses": ("20", "80"),
+                    "reversed_sale_value": ("100", "400"),
+                }
+                for key, values in expected.items():
+                    self.assertEqual((earlier[key], later[key]), values, key)
+                self.assertEqual(earlier["current_outstanding_debt"], later["current_outstanding_debt"])
+                saved = self.ledger.lookup_transaction(
+                    self.token, self.business, "sale", f"{boundary}-credit",
+                )
+                self.assertEqual(saved["created_at"], boundary)
 
 
 if __name__ == "__main__":

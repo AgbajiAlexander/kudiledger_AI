@@ -5,6 +5,7 @@ KudiLedger is a local financial ledger for Nigerian small businesses. The dashbo
 ## Run locally on Windows
 
 Run these commands in PowerShell from the repository directory. The project is verified with Python 3.13. Use Node.js on PATH for the dashboard syntax tests and a Chromium browser for the interaction test.
+Install the updated requirements when upgrading an existing checkout. The pinned `tzdata` package supplies IANA timezone data on Windows.
 
 ```powershell
 py -3.13 -m venv .venv
@@ -29,11 +30,18 @@ Open `http://127.0.0.1:8000/app` and sign in with the synthetic account created 
 4. Submit the identical sale again with the same reference. The dashboard should verify the original entry and leave the totals unchanged. For the simulated lost-response flow, run the browser test below. It drops a response after capturing the write, returns unresolved and conflicting results, and finally returns the matching record.
 5. Log out. To review the mobile layout manually, set the device width to 360 px in browser developer tools and repeat the workflow.
 
+## Nigerian business-day reporting
+
+The dashboard starts on today's date in Nigeria. After recording the demo transactions, select the previous reporting date and choose **Refresh records**. On a fresh demo database, daily sales, receipts and expenses for that earlier date are zero. Current customer debts still show the balance across all dates.
+
+`GET /api/v1/businesses/{business_id}/reports/daily?report_date=YYYY-MM-DD` interprets `report_date` as an Africa/Lagos calendar date. The response retains `date` and the existing totals, sets `timezone` to `Africa/Lagos`, and adds `period_start_utc` (inclusive) and `period_end_utc` (exclusive). Sales, repayments, expenses and reversals use the same interval. Each reversal is reported separately on the date it was recorded. For example, February 29, 2024 starts at 23:00 UTC on February 28 and ends at 23:00 UTC on February 29.
+
+API clients upgrading from UTC reporting should update their date selection and read the returned timezone. Stored UTC audit timestamps and their SQLite format need no migration or backfill. To replay month-end, year-end and leap-day transitions on synthetic data, run `.venv/Scripts/python.exe -m unittest -v tests.test_reports tests.test_api_reports`.
+
 ## Architecture and financial rules
 
 - FastAPI serves the vanilla HTML, CSS and JavaScript dashboard and the versioned API. The SQLite ledger and services hold the authoritative financial records.
 - The API converts naira amounts to integer kobo, requires explicit confirmation and checks ownership on business operations. Sale, repayment and expense references are unique per business and transaction type. Confirmed financial records are protected by database triggers. Adjustments and reversals record supported corrections separately.
-- Daily figures use UTC. Outstanding debt is the current balance, independent of the selected reporting date.
 - Recovery uses the original payload and business, checks the reference with an authenticated GET and compares amounts exactly. A missing lookup after an interrupted write leaves the form blocked. Record the reference, sign in to the same business if needed, and check again. For unresolved or conflicting entries, preserve the reference and review committed records with the operator before posting a replacement.
 - Recovery state lives in the open page. The dashboard requests a navigation warning while a financial submission is pending. Browser behavior varies, particularly on mobile. A refresh or tab close can lose the recovery state.
 

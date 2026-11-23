@@ -1,7 +1,11 @@
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.db.ledger import from_kobo
 from app.services.expenses import ExpenseLedger
+
+
+LAGOS = ZoneInfo("Africa/Lagos")
 
 
 class ReportLedger(ExpenseLedger):
@@ -23,6 +27,22 @@ class ReportLedger(ExpenseLedger):
         if parsed.isoformat() != report_date:
             raise ValueError("Report date must use YYYY-MM-DD")
 
+        try:
+            start_utc = datetime.combine(
+                parsed, time.min, LAGOS
+            ).astimezone(timezone.utc)
+            end_utc = datetime.combine(
+                parsed + timedelta(days=1), time.min, LAGOS
+            ).astimezone(timezone.utc)
+        except OverflowError:
+            raise ValueError("Report date exceeds supported range") from None
+
+        # Match the UTC text format written by SQLite CURRENT_TIMESTAMP.
+        bounds = tuple(
+            f"{instant.date().isoformat()} {instant.time().isoformat(timespec='seconds')}"
+            for instant in (start_utc, end_utc)
+        )
+
         with self.connect() as db:
             # Use one snapshot for every figure in the report.
             db.execute("BEGIN")
@@ -32,9 +52,9 @@ class ReportLedger(ExpenseLedger):
                           COALESCE(SUM(paid_kobo), 0) AS paid
                    FROM sales
                    WHERE business_id = ?
-                     AND date(created_at) = ?
+                     AND created_at >= ? AND created_at < ?
                      AND status = 'CONFIRMED'""",
-                (business_id, report_date),
+                (business_id, *bounds),
             ).fetchone()
 
             repayments = db.execute(
@@ -42,8 +62,8 @@ class ReportLedger(ExpenseLedger):
                           COALESCE(SUM(amount_kobo), 0) AS total
                    FROM repayments
                    WHERE business_id = ?
-                     AND date(created_at) = ?""",
-                (business_id, report_date),
+                     AND created_at >= ? AND created_at < ?""",
+                (business_id, *bounds),
             ).fetchone()
 
             expenses = db.execute(
@@ -51,8 +71,8 @@ class ReportLedger(ExpenseLedger):
                           COALESCE(SUM(amount_kobo), 0) AS total
                    FROM expenses
                    WHERE business_id = ?
-                     AND date(created_at) = ?""",
-                (business_id, report_date),
+                     AND created_at >= ? AND created_at < ?""",
+                (business_id, *bounds),
             ).fetchone()
 
             reversals = db.execute(
@@ -60,8 +80,8 @@ class ReportLedger(ExpenseLedger):
                           COALESCE(SUM(amount_kobo), 0) AS total
                    FROM sale_reversals
                    WHERE business_id = ?
-                     AND date(created_at) = ?""",
-                (business_id, report_date),
+                     AND created_at >= ? AND created_at < ?""",
+                (business_id, *bounds),
             ).fetchone()
 
             customers = db.execute(
@@ -79,7 +99,9 @@ class ReportLedger(ExpenseLedger):
         return {
             "business_id": business_id,
             "date": report_date,
-            "timezone": "UTC",
+            "timezone": LAGOS.key,
+            "period_start_utc": start_utc.isoformat(),
+            "period_end_utc": end_utc.isoformat(),
             "currency": "NGN",
             "sales_count": sales["count"],
             "gross_sales": str(from_kobo(sales["total"])),

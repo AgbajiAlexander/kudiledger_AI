@@ -80,6 +80,11 @@
   assert(Math.abs(sale.getBoundingClientRect().left -
     expense.getBoundingClientRect().left) < 1, "mobile forms stack");
   assert($("gross-sales").textContent.endsWith("250.01"), "rendered report");
+  assert($("report-date").value === "2024-02-29", "date defaults to Lagos at midnight");
+  assert(calls.some(call => call.path.endsWith("/reports/daily?report_date=2024-02-29")),
+    "report request uses Lagos date");
+  assert(getComputedStyle(field(sale, "customer_id")).borderRadius === "9px",
+    "customer select stylesheet applies");
 
   enter($("customer-form"), { name: "<Musa>" });
   submit($("customer-form"));
