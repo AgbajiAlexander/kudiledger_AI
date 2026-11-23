@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
-from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from decimal import Decimal
 from typing import Annotated
 
@@ -78,6 +79,18 @@ def create_app(database_path=None):
 
     ledger = ReportLedger(db_path)
     login_guard = LoginGuard(ledger)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request, error):
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {key: item[key] for key in ("loc", "msg", "type")}
+                    for item in error.errors()
+                ],
+            },
+        )
 
     def require_token(
         credentials: Annotated[
