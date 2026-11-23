@@ -260,3 +260,34 @@ class AccountLedger(RepaymentLedger):
         return super().list_repayments(
             business_id, customer_id
         )
+
+    def list_my_businesses(self, token):
+        """Return businesses belonging to an active session."""
+        if not self.is_active_session(token):
+            raise PermissionError("Authentication required")
+
+        token_hash = hashlib.sha256(
+            token.encode("utf-8")
+        ).hexdigest()
+
+        with self.connect() as db:
+            rows = db.execute(
+                """SELECT b.id, b.name, m.role
+                   FROM sessions s
+                   JOIN memberships m ON m.user_id = s.user_id
+                   JOIN businesses b ON b.id = m.business_id
+                   WHERE s.token_hash = ?
+                     AND s.expires_at > ?
+                   ORDER BY b.name COLLATE NOCASE, b.id""",
+                (token_hash, int(time.time())),
+            ).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "role": row["role"],
+            }
+            for row in rows
+        ]
+
