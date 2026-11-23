@@ -30,6 +30,16 @@ Open `http://127.0.0.1:8000/app` and sign in with the synthetic account created 
 4. Submit the identical sale again with the same reference. The dashboard should verify the original entry and leave the totals unchanged. For the simulated lost-response flow, run the browser test below. It drops a response after capturing the write, returns unresolved and conflicting results, and finally returns the matching record.
 5. Log out. To review the mobile layout manually, set the device width to 360 px in browser developer tools and repeat the workflow.
 
+## Mobile trader dashboard
+
+The six sections are **Overview**, **Customers**, **Sales**, **Repayments**, **Expenses**, and **Receipts**. Overview opens after sign-in and gives direct access to recording a sale, repayment, or expense. The same forms and ledger rules apply on phones, tablets, and desktops.
+
+Use **Customers** to add someone or search by name. In a sale or repayment, type part of the customer’s name and then choose the customer from the filtered list. Search covers the full business directory, while each list displays at most 50 matches. The form never picks a customer on its own.
+
+Enter naira amounts with up to two decimal places. You can leave the reference blank to have KudiLedger assign one. Confirm the transaction before saving. A dot on the section button and its accessible name indicate a record that needs checking. Open that section and select **Check saved transaction** before trying again.
+
+Mobile and desktop images use synthetic records from the running app. [Mobile overview](docs/review/KLD-006B3/mobile-overview.png) · [Mobile sale](docs/review/KLD-006B3/mobile-sale.png) · [Mobile receipt](docs/review/KLD-006B3/mobile-receipt.png) · [Desktop overview](docs/review/KLD-006B3/desktop-overview.png)
+
 ## Nigerian business-day reporting
 
 The dashboard starts on today's date in Nigeria. After recording the demo transactions, select the previous reporting date and choose **Refresh records**. On a fresh demo database, daily sales, receipts and expenses for that earlier date are zero. Current customer debts still show the balance across all dates.
@@ -63,7 +73,7 @@ The API requires authorization for the requested business. Receipts use the busi
 git diff --check
 ```
 
-The tests create synthetic records in temporary SQLite databases. Node checks the embedded JavaScript syntax. The interaction test runs the actual dashboard at 360 px in headless Chromium with controlled API responses, while the Python API tests exercise SQLite and backend authorization. In restricted Windows runners the tests require access to create and clean up temporary directories and launch the browser.
+The tests create synthetic records in temporary SQLite databases. Node checks the embedded JavaScript syntax. The interaction test runs the dashboard at 320, 360, 390, 430 and 768 px in headless Chromium with controlled API responses. It checks overflow, touch-target heights, focus, accessible labels, customer search, confirmed saves, receipt printing and recovery. The Python API tests exercise SQLite and backend authorization separately. In restricted Windows runners the tests require access to create and clean up temporary directories and launch the browser.
 
 ## Development limits
 

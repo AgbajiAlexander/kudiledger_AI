@@ -56,6 +56,17 @@
   const posts = () => calls.filter(call => call.method === "POST" &&
     /\/(sales|repayments|expenses)$/.test(call.path));
   const lookups = () => calls.filter(call => call.path.includes("/transactions/lookup"));
+  const nav = screen => document.querySelector('.nav [data-open="' + screen + '"]');
+  function go(screen) {
+    nav(screen).click();
+    const section = document.querySelector('[data-screen="' + screen + '"]');
+    assert(!section.hidden && document.activeElement === section.querySelector("h1"),
+      screen + " navigation moves focus");
+    assert(nav(screen).getAttribute("aria-current") === "page", "current section announced");
+    assert(document.querySelectorAll("[data-screen]:not([hidden])").length === 1,
+      "only active section is exposed");
+    assert(document.documentElement.scrollWidth <= window.innerWidth, screen + " overflow");
+  }
 
   async function signIn(email) {
     $("email").value = email;
@@ -79,10 +90,15 @@
   const repayment = $("repayment-form");
   const expense = $("expense-form");
   await signIn("owner@example.test");
-  assert(window.innerWidth === 360, "mobile viewport");
+  assert([320, 360, 390, 430, 768].includes(window.innerWidth), "requested viewport");
   assert(document.documentElement.scrollWidth <= window.innerWidth, "mobile overflow");
-  assert(Math.abs(sale.getBoundingClientRect().left -
-    expense.getBoundingClientRect().left) < 1, "mobile forms stack");
+  assert([...document.querySelectorAll(".nav button, .quick-actions button")].every(control =>
+    control.tabIndex === 0 && control.getBoundingClientRect().height >= 44), "keyboard and touch navigation");
+  assert(document.querySelector(".nav").getAttribute("aria-label") === "Business sections",
+    "screen reader navigation label");
+  document.querySelector('.quick-actions [data-open="sales"]').click();
+  assert(document.activeElement === $("sales-title"), "quick sale opens focused heading");
+  go("overview");
   assert($("gross-sales").textContent.endsWith("250.01"), "rendered report");
   assert($("report-date").value === "2024-02-29", "date defaults to Lagos at midnight");
   assert(calls.some(call => call.path.endsWith("/reports/daily?report_date=2024-02-29")),
@@ -90,11 +106,38 @@
   assert(getComputedStyle(field(sale, "customer_id")).borderRadius === "9px",
     "customer select stylesheet applies");
 
+  go("customers");
   enter($("customer-form"), { name: "<Musa>" });
   submit($("customer-form"));
   await tick();
   assert(field(sale, "customer_id").options[1].textContent === "<Musa>", "customer picker");
   assert($("customers").textContent.includes("<Musa>"), "customer renders as text");
+  directory.push(...Array.from({ length: 65 }, (_, i) =>
+    ({ id: "test-" + i, name: "Trader " + i, outstanding_balance: "0.01" })));
+  await refreshDashboard();
+  assert($("customer-count").textContent.includes("Showing 50 of 66"), "large directory capped");
+  $("customer-search").value = "tRaDeR 64";
+  $("customer-search").dispatchEvent(new Event("input"));
+  assert($("customers").rows.length === 1 && $("customers").textContent.includes("Trader 64"),
+    "directory searches beyond initial 50");
+  go("sales");
+  const customerSearch = sale.querySelector(".customer-filter");
+  const picker = field(sale, "customer_id");
+  assert(customerSearch.labels.length === 1 && picker.labels.length === 1 &&
+    picker.getAttribute("aria-describedby") === "sale-customer-hint", "picker accessible names");
+  customerSearch.value = "64";
+  customerSearch.dispatchEvent(new Event("input"));
+  assert(picker.options.length === 2 && picker.options[1].value === "test-64" && picker.value === "",
+    "picker finds customer without auto-selecting");
+  picker.value = "test-64";
+  customerSearch.value = "nobody";
+  customerSearch.dispatchEvent(new Event("input"));
+  assert(picker.value === "test-64" && $("sale-customer-hint").textContent.includes("No matching"),
+    "selection remains explicit when the filter changes");
+  sale.reset();
+  customerSearch.dispatchEvent(new Event("input"));
+  submit(sale);
+  assert(document.activeElement === picker && !posts().length, "native required validation focuses picker");
 
   const saleValues = { customer_id: "musa", reference: "SALE-1", total: "250.01", paid: "100" };
   const repaymentValues = { customer_id: "musa", reference: "DEBT-1", amount: "50" };
@@ -105,6 +148,7 @@
   post = body => response({ id: body.reference + "-committed" }, 201);
   for (const [form, values] of [[sale, saleValues], [repayment, repaymentValues],
                                 [expense, expenseValues]]) {
+    go(form.closest("[data-screen]").dataset.screen);
     enter(form, values);
     window.confirm = () => false;
     const before = posts().length;
@@ -146,6 +190,7 @@
     [repayment, "repayment", repaymentValues.reference],
     [expense, "expense", expenseValues.reference]
   ]) {
+    go(form.closest("[data-screen]").dataset.screen);
     const view = [...form.querySelectorAll("button")].find(item =>
       item.textContent === "View Receipt");
     assert(!view.hidden, kind + " receipt available after confirmed write");
@@ -164,10 +209,12 @@
       "receipt renders Nigeria date and time");
     assert(panel.textContent.includes("has not verified an external payment"), "verification notice");
     assert(panel.getBoundingClientRect().width <= window.innerWidth, "mobile receipt fits");
+    assert(form.getBoundingClientRect().height === 0, "receipt replaces the form while viewing");
     $("receipt-close").click();
     assert(panel.hidden && document.activeElement === view, "close restores focus");
   }
 
+  go("receipts");
   enter(search, { kind: "sale", reference: authoritative.reference });
   submit(search);
   await tick();
@@ -237,8 +284,15 @@
   assert($("dashboard").hidden, "expired session returns to sign-in");
   assertNoStalePrint("expired session");
   await signIn("owner@example.test");
+  go("sales");
 
   const miss = { found: false, kind: "sale", reference: "SALE-1" };
+  enter(sale, { ...saleValues, reference: "" });
+  window.confirm = () => true;
+  submit(sale);
+  await tick();
+  assert(/^WEB-[a-f0-9]{32}$/.test(posts().at(-1).body.reference),
+    "blank reference assigned on a confirmed save");
   for (const status of [400, 422]) {
     post = () => rejected(status);
     lookup = () => response(miss);
@@ -259,6 +313,7 @@
   }
   assert($("dashboard").hidden, "expired POST session hides dashboard");
   await signIn("owner@example.test");
+  go("sales");
 
   let loseResponse;
   let saved;
@@ -271,6 +326,7 @@
   const beforeLost = posts().length;
   submit(sale);
   submit(sale);
+  assert(button(sale).textContent === "Saving…", "saving state shown during pending request");
   assert(guardNavigation() && field(sale, "total").disabled, "pending submit locks fields and guards refresh");
   assert(posts().length === beforeLost + 1, "double submit");
   field(sale, "total").value = "25";
@@ -278,6 +334,10 @@
   await tick();
   assert(button(sale).disabled && !check(sale).hidden, "lookup miss keeps pending");
   assert(messageText().includes("uncertain"), "unknown status feedback");
+  go("overview");
+  assert(nav("sales").hasAttribute("data-pending") &&
+    nav("sales").getAttribute("aria-label").includes("pending"), "pending recovery stays discoverable");
+  go("sales");
 
   lookup = () => response({ unexpected: true });
   check(sale).click();
@@ -294,6 +354,7 @@
   assert($("dashboard").hidden && guardNavigation(), "expired lookup preserves pending");
   assert(!$("customers").textContent, "old tenant customer data cleared");
   await signIn("other@example.test");
+  go("sales");
   const beforeOther = lookups().length;
   assert(check(sale).hidden && !button(sale).disabled, "pending state scoped to business");
   check(sale).click();
@@ -303,6 +364,7 @@
   await tick();
   assert($("dashboard").hidden, "logout");
   await signIn("owner@example.test");
+  go("sales");
   assert(!check(sale).hidden && button(sale).disabled, "original business can recover after sign-in");
   lookup = () => response({ ...saved, paid: "100.00" });
   check(sale).click();
@@ -316,6 +378,6 @@
   assert([...sale.querySelectorAll("button")].some(item =>
     item.textContent === "View Receipt" && !item.hidden), "recovery offers a receipt");
 })().then(
-  () => parent.postMessage("PASS", "*"),
-  error => parent.postMessage(error.stack || String(error), "*")
+  () => parent.postMessage({ width: innerWidth, result: "PASS" }, "*"),
+  error => parent.postMessage({ width: innerWidth, result: error.stack || String(error) }, "*")
 );
