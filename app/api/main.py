@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.expenses import ExpenseLedger
+from app.services.reports import ReportLedger
 from app.services.login_guard import LoginGuard
 
 
@@ -74,7 +74,7 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = ExpenseLedger(db_path)
+    ledger = ReportLedger(db_path)
     login_guard = LoginGuard(ledger)
 
     def require_token(
@@ -449,6 +449,29 @@ def create_app(database_path=None):
         return run_protected(
             lambda: ledger.expense_summary(
                 token, business_id
+            )
+        )
+
+
+    @app.get(
+        "/api/v1/businesses/{business_id}/reports/daily"
+    )
+    def get_daily_business_report(
+        business_id: str,
+        report_date: str,
+        token: str = Depends(require_token),
+    ):
+        if len(report_date) > 32:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid report date",
+            )
+
+        return run_protected(
+            lambda: ledger.daily_summary(
+                token,
+                business_id,
+                report_date,
             )
         )
 
