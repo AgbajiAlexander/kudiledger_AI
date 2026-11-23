@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.adjustments import AdjustmentLedger
+from app.services.reversals import ReversalLedger
 from app.services.login_guard import LoginGuard
 
 
@@ -46,6 +46,14 @@ class AdjustmentRequest(BaseModel):
     confirmed: bool = False
 
 
+
+class SaleReversalRequest(BaseModel):
+    sale_id: str = Field(min_length=1, max_length=100)
+    reference: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=10, max_length=500)
+    confirmed: bool = False
+
+
 def create_app(database_path=None):
     app = FastAPI(
         title="KudiLedger AI",
@@ -57,7 +65,7 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = AdjustmentLedger(db_path)
+    ledger = ReversalLedger(db_path)
     login_guard = LoginGuard(ledger)
 
     def require_token(
@@ -304,6 +312,58 @@ def create_app(database_path=None):
                 ),
             }
             for item in records
+        ]
+
+
+    @app.post(
+        "/api/v1/businesses/{business_id}/sale-reversals",
+        status_code=201,
+    )
+    def create_sale_reversal(
+        business_id: str,
+        payload: SaleReversalRequest,
+        token: str = Depends(require_token),
+    ):
+        reversal_id = run_protected(
+            lambda: ledger.reverse_unpaid_sale(
+                token,
+                business_id,
+                payload.sale_id,
+                payload.reference,
+                payload.reason,
+                confirmed=payload.confirmed,
+            )
+        )
+
+        return {
+            "id": reversal_id,
+            "sale_id": payload.sale_id,
+            "status": "CONFIRMED",
+        }
+
+    @app.get(
+        "/api/v1/businesses/{business_id}/sale-reversals"
+    )
+    def get_sale_reversals(
+        business_id: str,
+        token: str = Depends(require_token),
+    ):
+        records = run_protected(
+            lambda: ledger.list_sale_reversals(
+                token, business_id
+            )
+        )
+
+        return [
+            {
+                **record,
+                "amount": str(
+                    record["amount"].quantize(
+                        Decimal("0.01")
+                    )
+                ),
+            }
+            for record in records
         ]
 
     return app
