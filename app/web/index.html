@@ -110,7 +110,8 @@ form.panel label { margin-bottom: 12px; }
 
 @page { margin: 4mm; }
 @media print {
-  body > header, main > :not(#receipt-panel), .receipt-controls {
+  body > header, main > :not(#receipt-panel), .receipt-controls,
+  #receipt-panel:not(.print-authorized) {
     display: none !important;
   }
   :root, body { background: white; color: black; }
@@ -392,6 +393,7 @@ function hideReceipt() {
   receiptQuery = null;
   receiptTrigger = null;
   $("receipt-panel").hidden = true;
+  $("receipt-panel").classList.remove("print-authorized");
   for (const id of ["receipt-heading", "receipt-business", "receipt-details"]) {
     $(id).replaceChildren();
   }
@@ -443,11 +445,13 @@ async function viewReceipt(query, trigger, print = false) {
     if (print) {
       $("receipt-panel").classList.toggle("narrow", $("receipt-paper").value === "narrow");
       $("receipt-print").focus();
+      $("receipt-panel").classList.add("print-authorized");
       window.print();
     } else {
       $("receipt-heading").focus();
     }
   } catch (error) {
+    if (request === receiptRequest) $("receipt-panel").classList.remove("print-authorized");
     if (error.status === 401 && !accessToken) {
       message("Sign in again to view or print receipts.");
     } else if (request === receiptRequest && token === accessToken) {
@@ -868,6 +872,9 @@ window.addEventListener("beforeunload", event => {
   }
 });
 window.addEventListener("pagehide", hideReceipt);
+window.addEventListener("afterprint", () => {
+  $("receipt-panel").classList.remove("print-authorized");
+});
 
 connectForm(
   "customer-form",

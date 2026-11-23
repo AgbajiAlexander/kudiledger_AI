@@ -105,6 +105,20 @@ class TestTransactionReceipts(unittest.TestCase):
             self.assertEqual(absent.status_code, 404)
             self.assertNotIn("Musa", denied.text + absent.text)
 
+        other_customer = self.ledger.add_customer(other_token, other_business, "Amina")
+        other_id = self.ledger.add_sale(
+            other_token, other_business, other_customer, self.reference,
+            "75", "0", confirmed=True,
+        )
+        own = self.receipt(
+            business=other_business, token=other_token, reference=self.reference,
+        )
+        self.assertEqual(own.status_code, 200)
+        self.assertEqual(own.json()["id"], other_id)
+        self.assertEqual(own.json()["customer_name"], "Amina")
+        self.assertEqual(self.receipt(transaction_id=other_id).status_code, 404)
+        self.assertEqual(self.receipt(reference=self.reference).json()["id"], original_id)
+
     def test_authentication_required_and_expired_token_denied(self):
         self.sale()
         url = f"/api/v1/businesses/{self.business}/receipts"
@@ -137,6 +151,23 @@ class TestTransactionReceipts(unittest.TestCase):
         self.assertEqual(result["recorded_at_local"], "2024-02-29T00:00:00+01:00")
         self.assertEqual(result["timezone"], "Africa/Lagos")
         self.assertEqual(result["amount"], "0.01")
+
+    def test_lagos_rollover_from_offset_aware_timestamps(self):
+        for stamp in ("2024-02-28T23:00:00Z", "2024-02-29T01:00:00+02:00"):
+            with self.subTest(stamp=stamp):
+                with self.ledger.connect() as db:
+                    db.execute(
+                        """INSERT INTO expenses (
+                               id, business_id, expense_reference, category, description,
+                               amount_kobo, created_at
+                           ) VALUES (?, ?, ?, 'Transport', 'Delivery', 1, ?)""",
+                        (stamp, self.business, stamp, stamp),
+                    )
+                response = self.receipt("expense", transaction_id=stamp)
+                self.assertEqual(response.status_code, 200)
+                result = response.json()
+                self.assertEqual(result["recorded_at_utc"], "2024-02-28T23:00:00+00:00")
+                self.assertEqual(result["recorded_at_local"], "2024-02-29T00:00:00+01:00")
 
     def test_reversed_sale_receipt_identifies_reversal(self):
         sale_id = self.sale(paid="0")

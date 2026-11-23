@@ -173,12 +173,15 @@
   await tick();
   assert(decodeURIComponent(receiptCalls().at(-1).path.replace(/\+/g, " "))
     .endsWith("reference=REC / #1"), "search uses URL-encoded reference");
+  assert(!panel.classList.contains("print-authorized"), "view alone does not enable printing");
   let prints = 0;
   window.print = () => {
     assert(!panel.hidden && panel.classList.contains("narrow") === (prints === 0),
       "selected print layout applied");
+    assert(panel.classList.contains("print-authorized"), "print enabled after fresh lookup");
     assert(panel.textContent.includes("900.00"), "print uses freshly authorized receipt data");
     prints++;
+    window.dispatchEvent(new Event("afterprint"));
   };
   $("receipt-paper").value = "narrow";
   fetchReceipt = () => response({ ...authoritative, kind: "sale", amount: "900.00" });
@@ -190,17 +193,50 @@
   $("receipt-print").click();
   await tick();
   assert(prints === 2 && receiptCalls().length === beforePrint + 2, "A4 print rechecks access");
-  fetchReceipt = () => rejected(401);
+  assert(!panel.classList.contains("print-authorized"), "print permission clears after print");
+
+  function assertNoStalePrint(label) {
+    assert(panel.hidden && !$("receipt-details").textContent &&
+      !$("receipt-business").textContent && !panel.classList.contains("print-authorized"),
+      label + " clears receipt");
+    const requests = receiptCalls().length;
+    $("receipt-print").click();
+    assert(prints === 2 && receiptCalls().length === requests, label + " blocks stale print");
+  }
+
+  $("receipt-close").click();
+  assertNoStalePrint("closing receipt");
+  submit(search);
+  await tick();
+  assert(!panel.hidden, "closed receipt can be reopened");
+  fetchReceipt = () => rejected(404);
   $("receipt-print").click();
   await tick();
-  assert(panel.hidden && !$("receipt-details").textContent && prints === 2,
-    "expired session clears receipt and prevents printing");
-  await signIn("owner@example.test");
+  assert(messageText() === "Receipt not found.", "print lookup failure feedback");
+  assertNoStalePrint("failed print lookup");
+
+  fetchReceipt = () => response({ ...authoritative, kind: "sale" });
+  submit(search);
+  await tick();
+  assert(!panel.hidden, "receipt available before session expires");
   fetchReceipt = () => rejected(404);
   enter(search, { kind: "sale", reference: "MISSING" });
   submit(search);
   await tick();
-  assert(panel.hidden && messageText() === "Receipt not found.", "missing receipt feedback");
+  assert(messageText() === "Receipt not found.", "missing receipt feedback");
+  assertNoStalePrint("failed receipt search");
+
+  fetchReceipt = () => response({ ...authoritative, kind: "sale" });
+  enter(search, { kind: "sale", reference: authoritative.reference });
+  submit(search);
+  await tick();
+  assert(!panel.hidden, "receipt available before expired print attempt");
+  fetchReceipt = () => rejected(401);
+  $("receipt-print").click();
+  await tick();
+  assert($("dashboard").hidden, "expired session returns to sign-in");
+  assertNoStalePrint("expired session");
+  await signIn("owner@example.test");
 
   const miss = { found: false, kind: "sale", reference: "SALE-1" };
   for (const status of [400, 422]) {

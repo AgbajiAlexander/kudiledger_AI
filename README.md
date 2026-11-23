@@ -42,11 +42,11 @@ API clients upgrading from UTC reporting should update their date selection and 
 
 1. Record and confirm a synthetic sale, repayment, or expense. Select **View Receipt** on that form. To reopen an older receipt, use **Find a receipt** and enter the original type and reference.
 2. Check the business, amount, Nigeria timestamp and relevant customer or expense details. A sale shows its paid and due amounts as recorded at sale, plus a reversal notice when applicable. Receipts document entries in KudiLedger and carry no external payment verification.
-3. Choose **A4** or **Narrow roll**, then select **Print Receipt**. Choose the matching paper size in your browser or printer dialog. The app rechecks access and refreshes the receipt before opening the print dialog.
+3. Choose **A4** or **Narrow roll**, then select **Print Receipt**. Choose the matching paper size in your browser or printer dialog. The app rechecks access and refreshes the receipt before opening the print dialog. Use this button to include receipt details in the printout.
 
 With an active bearer session, call `GET /api/v1/businesses/{business_id}/receipts?kind=sale&transaction_id=...` or use `reference=...` instead of `transaction_id`. The supported kinds are `sale`, `repayment`, and `expense`. A reference is scoped to its business and kind. Successful responses are marked `Cache-Control: no-store` and return exact two-decimal naira strings, `recorded_at_utc`, `recorded_at_local`, and the `Africa/Lagos` timezone.
 
-The API requires authorization for the requested business. The receipt includes the current business name and relevant customer name, which are read from the ledger directory. The browser controls print margins and paper settings. Verify sizing on the intended physical printer before using printed receipts in a pilot.
+The API requires authorization for the requested business. Receipts use the business name and applicable customer name stored in the ledger directory at retrieval time. Those names can differ from the names in use on the transaction date. The browser controls print margins and paper settings. Verify sizing on the intended physical printer before using printed receipts in a pilot.
 
 ## Architecture and financial rules
 

@@ -217,8 +217,11 @@ class ReportLedger(ExpenseLedger):
         if row is None:
             return None
 
-        # SQLite CURRENT_TIMESTAMP stores UTC without an offset suffix.
-        recorded_utc = datetime.fromisoformat(row["created_at"] + "+00:00")
+        recorded = datetime.fromisoformat(row["created_at"])
+        if recorded.tzinfo is None:
+            # SQLite CURRENT_TIMESTAMP stores UTC without an offset suffix.
+            recorded = recorded.replace(tzinfo=timezone.utc)
+        recorded_utc = recorded.astimezone(timezone.utc)
         amount = row["total_kobo"] if kind == "sale" else row["amount_kobo"]
         receipt = {
             "id": row["id"],

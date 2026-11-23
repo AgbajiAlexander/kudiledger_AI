@@ -11,6 +11,7 @@
 
 - Authenticated, business-scoped read-only receipts are available by type and ID or reference. The API uses committed amounts, explicit UTC and Lagos timestamps, and a flag indicating that external payment verification has not been performed.
 - The dashboard offers a receipt after a confirmed save or recovery and can reopen earlier receipts by type and reference. Printing rechecks access and isolates the receipt with A4 and narrow-roll layouts.
+- Receipts read business and customer names from the directory at retrieval time. Those names can differ from the names in use on the transaction date.
 - Tests cover authorization and expiry, missing and duplicate references, exact naira amounts, UTC-to-Lagos rollover, reversed sales, browser rendering and print invocation. Printer hardware and mobile print dialogs still need manual verification.
 
 ## KLD-006B1 reporting
