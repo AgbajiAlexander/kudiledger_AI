@@ -7,7 +7,16 @@
 - KLD-006B1 Africa/Lagos reporting merged into `main` at `9547e35`.
 - KLD-006B2 secure transaction receipts merged into `main` at `9eb219a`.
 - KLD-006B3 mobile trader experience merged into `main` at `4fef013`.
-- KLD-006B4 persistent transaction recovery is on `feature/KLD-006B4-persistent-recovery` for owner and technical review.
+- KLD-006B4 persistent transaction recovery merged into `main` at `4bda1f7`.
+- KLD-006B5 pilot safety is on `feature/KLD-006B5-pilot-safety` for independent review.
+
+## KLD-006B5 synthetic pilot safety
+
+- Recovery uses one immediate SQLite transaction for the claim, existing ledger service and journal outcome. The subprocess tests verify rollback before the write, after insertion and before commit, plus durability and duplicate protection after commit.
+- Separately granted operators may inspect blocked attempts and record evidence-backed decisions. The immutable audit survives journal cleanup. Operators have no recovery endpoint for changing financial records.
+- The local backup tool creates and validates a consistent snapshot, checks the checksum during restore, revokes restored sessions and publishes a new file. The drill verifies balances, references, unresolved and committed recovery, and audit history.
+- The app supports opt-in HTTPS enforcement, HSTS, dashboard CSP, frame denial and no-store headers. See the [pilot operations guide](docs/pilot-operations.md) for the remaining deployment, account, storage and monitoring gaps.
+- Verification on 23 November 2026 passed all 207 tests in 90.740 seconds with zero failures, errors or skips. The 25 focused crash, recovery, operator, backup, transport and live browser tests passed in 14.649 seconds. JavaScript syntax, dependency consistency and Git whitespace checks passed.
 
 ## KLD-006B4 persistent recovery
 
@@ -47,11 +56,11 @@
 
 ## Remaining development limits
 
-- The dashboard blocks new writes of the same kind while the original account and business have an unresolved attempt. Existing direct API clients and separate accounts still rely on scoped reference uniqueness and operator coordination. There is no offline write queue or operator override.
+- The dashboard blocks new writes of the same kind while the original account and business have an unresolved attempt. Existing direct API clients and separate accounts still rely on scoped reference uniqueness and operator coordination. There is no offline write queue.
 - The browser test uses mocked API responses. Physical Android devices and combined live-server/browser response interruption remain unverified. Authentication, financial persistence and lost-response API semantics have separate integration coverage.
 - SQLite write contention under sustained load, cumulative integer aggregate limits and extreme-volume reporting have not been load-tested. Process logs, reverse-proxy configuration, rate limits across identities, recovery workflows and secure session handling need review before pilot deployment.
 - Registration is local service provisioning. Account verification, password recovery, production deployment, PostgreSQL migration, WhatsApp integration and AI-assisted entry remain future work.
 
 ## Next milestone after review
 
-KLD-006B5 prepares a controlled pilot. Include backup and restore drills, authenticated operator resolution for stuck claims, and safe alerting for long-unresolved records. See [README.md](README.md) for startup and verification commands.
+Hold deployment for independent review. The next pilot checks are a real TLS and proxy smoke test, access-controlled backup scheduling and recovery drills on the target host, and alerting for long-unresolved records.

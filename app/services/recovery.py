@@ -1,4 +1,4 @@
-﻿import json
+import json
 import sqlite3
 from uuid import uuid4
 
@@ -102,53 +102,44 @@ class RecoveryLedger(ReportLedger):
             return self._summary(self._get_attempt(db, attempt_id, business_id, user_id))
 
     def submit_recovery(self, token, business_id, attempt_id):
-        user_id = self._membership(token, business_id)["user_id"]
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        with self._using_connection(immediate=True) as db:
+            user_id = self._membership(token, business_id, _db=db)["user_id"]
             row = self._get_attempt(db, attempt_id, business_id, user_id)
             if row["stage"] != "prepared":
                 raise RecoveryConflict("This record can only be submitted once")
-            db.execute("UPDATE recovery_attempts SET stage = 'sending' WHERE id = ?", (attempt_id,))
 
-        payload = json.loads(row["payload"])
-        reference = row["reference"]
-        try:
-            if row["kind"] == "sale":
-                transaction_id = self.add_sale(
-                    token, business_id, payload["customer_id"], reference,
-                    payload["total"], payload["paid"], confirmed=payload["confirmed"],
-                )
-            elif row["kind"] == "repayment":
-                transaction_id = self.add_repayment(
-                    token, business_id, payload["customer_id"], reference,
-                    payload["amount"], confirmed=payload["confirmed"],
-                )
-            else:
-                transaction_id = self.record_expense(
-                    token, business_id, reference, payload["category"], payload["description"],
-                    payload["amount"], confirmed=payload["confirmed"],
-                )
-        except ValueError:
-            # A duplicate reference can also raise ValueError. Inspect the ledger
-            # before distinguishing a confirmed rejection from a conflict.
-            return self._check_recovery(token, business_id, attempt_id, rejected=True)
-        except PermissionError:
-            # The existing ledger services check membership before any write.
-            with self.connect() as db:
-                db.execute(
-                    """UPDATE recovery_attempts SET stage = 'rejected'
-                       WHERE id = ? AND stage = 'sending'""",
-                    (attempt_id,),
-                )
-            raise
-
-        with self.connect() as db:
+            # The writer lock claims the attempt until the outcome commits.
+            db.execute("SAVEPOINT financial_write")
+            try:
+                transaction_id = self._write_recovery(db, token, row)
+            except ValueError:
+                db.execute("ROLLBACK TO financial_write")
+                db.execute("RELEASE financial_write")
+                return self._classify_recovery(db, row, rejected=True)
+            db.execute("RELEASE financial_write")
             db.execute(
-                """UPDATE recovery_attempts SET stage = 'saved'
-                   WHERE id = ? AND stage = 'sending'""",
+                "UPDATE recovery_attempts SET stage = 'saved' WHERE id = ?",
                 (attempt_id,),
             )
-        return {"status": "saved", "transaction_id": transaction_id}
+            return {"status": "saved", "transaction_id": transaction_id}
+
+    def _write_recovery(self, db, token, row):
+        payload = json.loads(row["payload"])
+        business_id, reference = row["business_id"], row["reference"]
+        if row["kind"] == "sale":
+            return self.add_sale(
+                token, business_id, payload["customer_id"], reference,
+                payload["total"], payload["paid"], confirmed=payload["confirmed"], _db=db,
+            )
+        if row["kind"] == "repayment":
+            return self.add_repayment(
+                token, business_id, payload["customer_id"], reference,
+                payload["amount"], confirmed=payload["confirmed"], _db=db,
+            )
+        return self.record_expense(
+            token, business_id, reference, payload["category"], payload["description"],
+            payload["amount"], confirmed=payload["confirmed"], _db=db,
+        )
 
     @staticmethod
     def _matches(kind, payload, saved):
@@ -171,31 +162,29 @@ class RecoveryLedger(ReportLedger):
         )
 
     def check_recovery(self, token, business_id, attempt_id):
-        return self._check_recovery(token, business_id, attempt_id)
-
-    def _check_recovery(self, token, business_id, attempt_id, *, rejected=False):
-        user_id = self._membership(token, business_id)["user_id"]
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        with self._using_connection(immediate=True) as db:
+            user_id = self._membership(token, business_id, _db=db)["user_id"]
             row = self._get_attempt(db, attempt_id, business_id, user_id)
-            stage = row["stage"]
-            # A prepared attempt has never been claimed by this workflow. Keep
-            # it cancellable even if its proposed reference already exists.
-            if stage in ("prepared", "rejected"):
-                return self._summary(row)
-            saved = self._find_transaction(db, business_id, row["kind"], row["reference"])
-            transaction_id = None
-            if saved is not None:
-                if self._matches(row["kind"], json.loads(row["payload"]), saved):
-                    stage, transaction_id = "verified", saved["id"]
-                else:
-                    stage = "conflict"
-            elif rejected or stage == "rejected":
-                stage = "rejected"
-            elif stage != "conflict":
-                stage = "sending"
-            db.execute("UPDATE recovery_attempts SET stage = ? WHERE id = ?", (stage, attempt_id))
-            return self._summary(row, stage, transaction_id)
+            return self._classify_recovery(db, row)
+
+    def _classify_recovery(self, db, row, *, rejected=False):
+        stage = row["stage"]
+        if not rejected and stage in ("prepared", "rejected"):
+            return self._summary(row)
+
+        saved = self._find_transaction(db, row["business_id"], row["kind"], row["reference"])
+        transaction_id = None
+        if saved is not None:
+            if self._matches(row["kind"], json.loads(row["payload"]), saved):
+                stage, transaction_id = "verified", saved["id"]
+            else:
+                stage = "conflict"
+        elif rejected:
+            stage = "rejected"
+        elif stage != "conflict":
+            stage = "sending"
+        db.execute("UPDATE recovery_attempts SET stage = ? WHERE id = ?", (stage, row["id"]))
+        return self._summary(row, stage, transaction_id)
 
     def clear_recovery(self, token, business_id, attempt_id, *, cancel=False):
         user_id = self._membership(token, business_id)["user_id"]

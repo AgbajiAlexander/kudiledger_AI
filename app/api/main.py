@@ -1,16 +1,20 @@
+import base64
+import hashlib
 import os
-from pathlib import Path
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+import re
 from decimal import Decimal
+from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.services.recovery import RecoveryConflict, RecoveryLedger, RecoveryNotFound
 from app.services.login_guard import LoginGuard
+from app.services.operators import PilotLedger
+from app.services.recovery import RecoveryConflict, RecoveryNotFound
 
 
 security = HTTPBearer(auto_error=False)
@@ -87,13 +91,21 @@ class RecoveryAcknowledgement(BaseModel):
     transaction_id: str = Field(min_length=1, max_length=100)
 
 
+class OperatorDecision(BaseModel):
+    decision: Literal["retain_uncertain", "confirm_committed", "release_failed"]
+    evidence_type: Literal["inconclusive", "ledger_match", "ledger_conflict", "prewrite_failure"]
+    evidence_reference: str = Field(min_length=1, max_length=120)
+    evidence_notes: str = Field(min_length=24, max_length=1000)
+    confirmed: bool = False
+
+
 RecoveryPayload = Annotated[
     RecoverySale | RecoveryRepayment | RecoveryExpense,
     Field(discriminator="kind"),
 ]
 
 
-def create_app(database_path=None):
+def create_app(database_path=None, *, require_https=None):
     app = FastAPI(
         title="KudiLedger AI",
         description="Financial record-keeping API for Nigerian SMEs",
@@ -104,8 +116,30 @@ def create_app(database_path=None):
         "KUDILEDGER_DB", "kudiledger_api.db"
     )
 
-    ledger = RecoveryLedger(db_path)
+    if require_https is None:
+        configured = os.environ.get("KUDILEDGER_REQUIRE_HTTPS", "0")
+        if configured not in ("0", "1"):
+            raise ValueError("KUDILEDGER_REQUIRE_HTTPS must be 0 or 1")
+        require_https = configured == "1"
+
+    ledger = PilotLedger(db_path)
     login_guard = LoginGuard(ledger)
+
+    @app.middleware("http")
+    async def response_safeguards(request, call_next):
+        secure = request.url.scheme == "https"
+        if require_https and not secure:
+            response = JSONResponse({"detail": "HTTPS is required"}, status_code=400)
+        else:
+            response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if require_https and secure:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+        if request.url.path.startswith("/api/v1/") or request.url.path == "/app":
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request, error):
@@ -525,15 +559,20 @@ def create_app(database_path=None):
 
     @app.get("/app", include_in_schema=False)
     def trader_dashboard():
-        page = (
+        source = (
             Path(__file__).resolve().parents[1]
             / "web" / "index.html"
-        )
-        return FileResponse(
-            page,
-            media_type="text/html",
-            headers={"Cache-Control": "no-store"},
-        )
+        ).read_text(encoding="utf-8")
+        policy = ["default-src 'none'", "connect-src 'self'", "frame-ancestors 'none'",
+                  "base-uri 'none'", "form-action 'self'"]
+        for tag in ("script", "style"):
+            blocks = re.findall(rf"<{tag}\b[^>]*>(.*?)</{tag}>", source, re.DOTALL)
+            digests = [
+                "'sha256-" + base64.b64encode(hashlib.sha256(block.encode()).digest()).decode() + "'"
+                for block in blocks
+            ]
+            policy.append(f"{tag}-src " + (" ".join(digests) or "'none'"))
+        return HTMLResponse(source, headers={"Content-Security-Policy": "; ".join(policy)})
 
 
     @app.get("/api/v1/auth/businesses")
@@ -637,6 +676,32 @@ def create_app(database_path=None):
             token, business_id, attempt_id, cancel=action == "cancel",
         ))
         return {"status": "cleared"}
+
+    operator_path = "/api/v1/businesses/{business_id}/operator/recovery"
+
+    @app.get(operator_path)
+    def list_operator_recovery(
+        business_id: str, reference: Annotated[str | None, Query(max_length=100)] = None,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(lambda: ledger.list_operator_recovery(
+            token, business_id, reference.strip() if reference else None,
+        ))
+
+    @app.post(operator_path + "/{attempt_id}/decisions", status_code=201)
+    def decide_operator_recovery(
+        business_id: str, attempt_id: str, payload: OperatorDecision,
+        token: str = Depends(require_token),
+    ):
+        return run_protected(lambda: ledger.decide_recovery(
+            token, business_id, attempt_id, **payload.model_dump(),
+        ))
+
+    @app.get(operator_path + "/{attempt_id}/audit")
+    def get_operator_recovery_audit(
+        business_id: str, attempt_id: str, token: str = Depends(require_token),
+    ):
+        return run_protected(lambda: ledger.operator_recovery_audit(token, business_id, attempt_id))
 
     return app
 

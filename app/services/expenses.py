@@ -50,9 +50,9 @@ class ExpenseLedger(StatementLedger):
 
     def record_expense(
         self, token, business_id, reference,
-        category, description, amount_naira, confirmed=False
+        category, description, amount_naira, confirmed=False, *, _db=None
     ):
-        self._authorize(token, business_id)
+        self._authorize(token, business_id, _db=_db)
 
         if confirmed is not True:
             raise ValueError("Expense requires confirmation")
@@ -75,7 +75,7 @@ class ExpenseLedger(StatementLedger):
 
         expense_id = str(uuid4())
 
-        with self.connect() as db:
+        with self._using_connection(_db) as db:
             try:
                 db.execute(
                     """INSERT INTO expenses

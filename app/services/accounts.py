@@ -158,10 +158,10 @@ class AccountLedger(RepaymentLedger):
 
         return token
 
-    def _authorize(self, token, business_id):
-        return self._membership(token, business_id)["role"]
+    def _authorize(self, token, business_id, *, _db=None):
+        return self._membership(token, business_id, _db=_db)["role"]
 
-    def _membership(self, token, business_id):
+    def _membership(self, token, business_id, *, _db=None):
         if not isinstance(token, str) or not token:
             raise PermissionError("Authentication required")
 
@@ -169,7 +169,7 @@ class AccountLedger(RepaymentLedger):
             token.encode("utf-8")
         ).hexdigest()
 
-        with self.connect() as db:
+        with self._using_connection(_db) as db:
             row = db.execute(
                 """SELECT m.role, m.user_id FROM sessions s
                    JOIN memberships m
@@ -230,24 +230,24 @@ class AccountLedger(RepaymentLedger):
 
     def add_sale(
         self, token, business_id, customer_id,
-        reference, total, paid, confirmed=False
+        reference, total, paid, confirmed=False, *, _db=None
     ):
-        self._authorize(token, business_id)
+        self._authorize(token, business_id, _db=_db)
 
         return super().record_sale(
             business_id, customer_id, reference,
-            total, paid, confirmed=confirmed
+            total, paid, confirmed=confirmed, _db=_db
         )
 
     def add_repayment(
         self, token, business_id, customer_id,
-        reference, amount, confirmed=False
+        reference, amount, confirmed=False, *, _db=None
     ):
-        self._authorize(token, business_id)
+        self._authorize(token, business_id, _db=_db)
 
         return super().record_repayment(
             business_id, customer_id, reference,
-            amount, confirmed=confirmed
+            amount, confirmed=confirmed, _db=_db
         )
 
     def get_balance(self, token, business_id, customer_id):

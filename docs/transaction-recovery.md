@@ -12,7 +12,7 @@ The dashboard generates or accepts a reference, confirms the financial record, t
 
 Use an authenticated SQLite journal. Write the confirmed intent before issuing the financial POST. The dashboard keeps tokens and recovery data in page memory only. Journal API responses omit the original payload and use no-store. Every operation checks the signed-in user and business membership. On sign-out or expiry the page clears its recovery display.
 
-The financial POST claims a prepared intent once, then calls the existing ledger write with the stored payload. Preparing and claiming are separate so losing a preparation response cannot cause a financial record. An unsent intent can be cancelled with an atomic check. A claimed intent is never resent by the dashboard, including after refresh. If a crash leaves a claimed attempt without a matching ledger row, its outcome stays unclear.
+The financial POST claims a prepared intent once and calls the existing ledger write with the stored payload. Preparing and submitting are separate so losing a preparation response cannot cause a financial record. In KLD-006B5 the claim, write and result use an immediate transaction on the same connection. A pre-commit process interruption rolls back to an unsent intent. An unsent intent can be cancelled with an atomic check. The dashboard never resends a financial POST after a lost response.
 
 A fresh authorized check reads the applicable committed record by business, kind and reference and compares the saved fields against the original payload using exact kobo. A matching record unlocks receipt access. A different record is a conflict. Absence alone leaves a claimed attempt unresolved. A ledger validation rejection is recorded separately from a network error. A partial unique index blocks new dashboard submissions in that scope while an earlier record remains unsettled.
 
@@ -22,8 +22,8 @@ The journal adds a table and indexes to the existing SQLite database on app star
 
 | State | Meaning and safe action |
 | --- | --- |
-| Ready but unsent | The server stored the confirmation and no financial request claimed it. Cancel the entry if you want to start again. The cancellation checks the state atomically in case another tab already started the write. |
-| Still uncertain | The financial request claimed the record, or the response was lost before acknowledgement. Check the ledger. A missing row leaves the claim intact, even after repeated checks. |
+| Ready but unsent | The server stored the confirmation and this intent has no committed write. A process interruption before atomic commit also leaves this state. Cancel the entry if you want to start again. Cancellation checks the current state inside a transaction. |
+| Still uncertain | The response was lost before acknowledgement, or an older version persisted a standalone claim. Check the ledger. A missing row alone leaves a legacy claim intact. |
 | Reference already used | The same type and reference identify a different committed record. The new entry remains blocked for review. |
 | Verified as saved | An authorized lookup matched the original fields and exact kobo values. Open the receipt or remove the check from the journal. |
 | Rejected | The ledger established a validation or pre-write authorization rejection. Review the entries and explicitly confirm any correction. |
@@ -36,7 +36,7 @@ The SQLite partial unique index admits one blocking attempt per kind, account an
 - The browser keeps only an in-memory bearer token. The journal stores the confirmed fields required for matching on the server, including customer IDs and expense descriptions. Keep the SQLite file and backups access-controlled, and avoid personal information in free-text references. HTTP access logs and operation logs should be reviewed before pilot deployment.
 - Browser storage isolation covers shared-device sign-in changes. An active script compromise or compromised server can still act with the current user's access. Pilot controls should include HTTPS, script restrictions, database access controls and restricted diagnostic logs.
 - Receipt lookup remains business-authorized. Recovery additionally scopes the journal to the creating account, including when two accounts belong to the same business. An unrelated account cannot retrieve the journal or use an attempt ID to take action.
-- The claim and ledger write use separate transactions. If the process stops between them, a missing ledger row cannot prove that the write will never commit. Leave the claim pending and follow the escalation workflow. There is no operator override in this version.
+- A standalone claim left by KLD-006B4 may still be unresolved. A missing ledger row alone cannot prove the original process stopped before writing. A granted operator can record an evidence-backed decision without changing financial records. Follow the [operator workflow](pilot-operations.md#audited-investigation).
 - The workflow needs a connection to prepare a new write or verify an earlier one. It provides no offline queue. Recovery covers submissions made by the new dashboard path and cannot reconstruct earlier browser-only attempts.
 
-For the pilot, evaluate committing the financial row and journal outcome on one database connection and add an audited operator workflow for stuck claims. Verify restores using consistent journal and ledger backups from the same database snapshot.
+The [architecture decision](pilot-architecture.md) explains the atomic boundary. The [restore drill](pilot-operations.md#backup-and-restore-drill) backs up the journal and ledger from the same SQLite snapshot.
