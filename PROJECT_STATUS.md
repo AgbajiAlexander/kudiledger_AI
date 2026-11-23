@@ -6,7 +6,15 @@
 - KLD-006B0 stabilization merged into `main` at `86ecd96`.
 - KLD-006B1 Africa/Lagos reporting merged into `main` at `9547e35`.
 - KLD-006B2 secure transaction receipts merged into `main` at `9eb219a`.
-- KLD-006B3 mobile trader experience is on `feature/KLD-006B3-mobile-trader-experience` for owner and technical review.
+- KLD-006B3 mobile trader experience merged into `main` at `4fef013`.
+- KLD-006B4 persistent transaction recovery is on `feature/KLD-006B4-persistent-recovery` for owner and technical review.
+
+## KLD-006B4 persistent recovery
+
+- The server saves the confirmed original payload against the business, account, type and reference before the dashboard sends the financial write. The journal survives refresh and sign-out. The browser stores no credentials or journal contents persistently.
+- A fresh authorized check matches committed ledger fields in exact kobo. Recovery distinguishes unsent, uncertain, conflicting, rejected and verified saves. Verified results offer receipts. A new write of the same type stays blocked for that account and business while its earlier result is uncertain.
+- The live Chrome integration test drops the response after the local API commits a synthetic sale, tests an offline check, refreshes and signs in, then verifies the sale and opens its receipt. The database contains one sale.
+- See the [threat model](docs/transaction-recovery.md) and the [recovery workflow](README.md#recover-an-interrupted-save) for privacy decisions and manual escalation.
 
 ## KLD-006B3 mobile dashboard
 
@@ -31,7 +39,7 @@
 
 | Area | Finding and disposition |
 | --- | --- |
-| Transaction recovery | Invalid amount conversions could match each other. Recovery now compares validated exact kobo amounts, requires a well-formed lookup response and keeps the original payload bound to its business. Known 400 and 422 rejections permit correction after the matching lookup reports absence. A POST rejected with 401 or 403 clears that attempt. A lookup failure, missing record after response loss, or conflicting reference retains the pending state. The browser uses GET for verification and locks edits and duplicate submissions while pending. It clears visible data on sign-out or expiry and prompts before leaving a page with pending work. |
+| Transaction recovery | KLD-006B0 added exact comparisons and in-page recovery controls. KLD-006B4 moved the pending state and match verification to the authenticated server journal. |
 | Ledger and reporting | Reviewed authorization, business-scoped uniqueness and immutable records. SQLite serializes repayment, adjustment and reversal balance checks with `BEGIN IMMEDIATE`. A concurrent repayment test covers overpayment and an exact duplicate of the successful write. Duplicate sale, repayment and expense references have distinct domain messages and retain HTTP 400 compatibility. Unexpected constraint errors take the server-error path. The daily report now reads all figures in one SQLite snapshot. Out-of-range amounts are rejected before conversion. |
 | Dashboard reliability | The Chrome test uses real DOM controls at 360 px, with controlled API responses for login, logout, customer selection, confirmation, saves and transaction recovery. Separate API tests verify committed records, tenant isolation, balance calculations and report figures. Dashboard amounts are formatted from integer kobo so the confirmation text preserves the selected amount. |
 | Account and browser security | Passwords use salted scrypt. Random bearer tokens are stored hashed server-side, expire after 12 hours and are revoked on successful logout. The page keeps credentials and tokens out of persistent browser storage. HTTP 422 responses omit the rejected input values. Per-email SQLite login throttling limits repeated failures. Explicit authorization headers reduce classic cookie-based CSRF exposure. Dynamic customer and transaction text renders through text APIs. Production still needs HTTPS, security headers and a broader security review. |
@@ -39,11 +47,11 @@
 
 ## Remaining development limits
 
-- In-memory recovery cannot guarantee duplicate prevention across reloads, closed tabs or separate devices when a merchant enters a new reference. The unique database constraint protects a repeated reference within its business and type. Browser navigation prompts are best effort. Persistent recovery and an operator workflow belong to KLD-006B4.
+- The dashboard blocks new writes of the same kind while the original account and business have an unresolved attempt. Existing direct API clients and separate accounts still rely on scoped reference uniqueness and operator coordination. There is no offline write queue or operator override.
 - The browser test uses mocked API responses. Physical Android devices and combined live-server/browser response interruption remain unverified. Authentication, financial persistence and lost-response API semantics have separate integration coverage.
 - SQLite write contention under sustained load, cumulative integer aggregate limits and extreme-volume reporting have not been load-tested. Process logs, reverse-proxy configuration, rate limits across identities, recovery workflows and secure session handling need review before pilot deployment.
 - Registration is local service provisioning. Account verification, password recovery, production deployment, PostgreSQL migration, WhatsApp integration and AI-assisted entry remain future work.
 
 ## Next milestone after review
 
-KLD-006B4 extends transaction recovery beyond the open page. See [README.md](README.md) for startup, the mobile demo, and verification commands.
+KLD-006B5 prepares a controlled pilot. Include backup and restore drills, authenticated operator resolution for stuck claims, and safe alerting for long-unresolved records. See [README.md](README.md) for startup and verification commands.

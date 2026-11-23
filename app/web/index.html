@@ -68,6 +68,7 @@ p { margin: 0 0 12px; color: var(--muted); }
   background: var(--surface);
 }
 .nav button { color: var(--muted); background: transparent; padding: 6px 3px; }
+.nav [data-open="recovery"] { grid-column: 1 / -1; }
 .nav button[aria-current="page"] { background: #dcece1; color: var(--deep); }
 .nav button[data-pending]::after { content: ""; display: inline-block; margin-left: 4px;
   background: #a86308; width: 7px; height: 7px; border-radius: 50%; }
@@ -144,6 +145,7 @@ th:last-child, td:last-child { text-align: right; }
 .receipt dt { font-weight: 650; }
 .receipt dd { margin: 3px 0 0; }
 .receipt .actions { align-items: end; }
+#recovery-history summary { min-height: 44px; padding-block: 8px; cursor: pointer; }
 @media screen {
   .receipt dl div { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: 10px; }
   .receipt dd { margin: 0; text-align: right; }
@@ -152,12 +154,15 @@ th:last-child, td:last-child { text-align: right; }
 @media screen and (min-width: 640px) {
   main { padding-inline: 22px; }
   .header-inner { padding-inline: 22px; }
-  .nav { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .fields, .columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .panel, .metric { padding: 20px; }
   .work-form { max-width: 620px; }
   .screen-title { margin: 24px 0 18px; }
+}
+@media screen and (min-width: 760px) {
+  .nav { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .nav [data-open="recovery"] { grid-column: auto; }
 }
 @page { margin: 4mm; }
 @media print {
@@ -207,6 +212,7 @@ th:last-child, td:last-child { text-align: right; }
     <button type="button" data-open="repayments">Repayments</button>
     <button type="button" data-open="expenses">Expenses</button>
     <button type="button" data-open="receipts">Receipts</button>
+    <button type="button" data-open="recovery">Recovery</button>
   </nav>
 
   <section data-screen="overview" aria-labelledby="overview-title">
@@ -368,6 +374,21 @@ th:last-child, td:last-child { text-align: right; }
       <div class="actions"><button type="submit">View Receipt</button></div>
     </form>
   </section>
+  <section data-screen="recovery" hidden aria-labelledby="recovery-title">
+    <div class="screen-title">
+      <h1 id="recovery-title" tabindex="-1">Check saved records</h1>
+      <p>Check a record here if the connection was interrupted while saving.</p>
+    </div>
+    <div class="actions panel">
+      <button id="recovery-refresh" type="button" class="secondary">Refresh recovery list</button>
+      <p id="recovery-status" role="status"></p>
+    </div>
+    <div id="recovery-list"></div>
+    <details id="recovery-history" class="panel" hidden>
+      <summary>Recently checked records</summary>
+      <div id="recovery-recent"></div>
+    </details>
+  </section>
 </section>
 <section id="receipt-panel" class="panel receipt" hidden aria-labelledby="receipt-heading">
   <h2 id="receipt-heading" tabindex="-1"></h2>
@@ -397,6 +418,10 @@ let receiptQuery = null;
 let receiptTrigger = null;
 let customerDirectory = [];
 let dashboardRequest = 0;
+let recoveryRequest = 0;
+let recoveryLoaded = false;
+let recoveryLoading = false;
+const recoveryRecords = new Map();
 const financialForms = [];
 const $ = id => document.getElementById(id);
 
@@ -456,6 +481,7 @@ async function api(path, options = {}) {
       response.status === 403 ? "Access to this business is denied." :
       response.status === 429 ? "Too many sign-in attempts. Try again later." :
       response.status === 400 || response.status === 422 ? "Check the details you entered." :
+      response.status === 409 ? "Check the earlier record in Recovery first." :
       "Request failed (HTTP " + response.status + ")."
     );
     error.status = response.status;
@@ -679,39 +705,173 @@ function cents(value) {
     BigInt((parts[1] || "").padEnd(2, "0"));
 }
 
-function sameAmount(saved, attempted, allowZero = false) {
-  const amount = cents(saved);
-  return amount !== null && amount <= maxKobo &&
-    (allowZero || amount > 0n) &&
-    amount === cents(attempted);
+const recoveryLabels = {
+  sale: "Sale", repayment: "Customer repayment", expense: "Business expense"
+};
+const recoveryStatus = {
+  prepared: ["Ready but unsent", "This save never started. Cancel it before recording the transaction again."],
+  unresolved: ["Still uncertain", "Check for a saved record. If the status stays uncertain, keep this reference and contact support before recording it again."],
+  conflict: ["Reference already used", "A different record uses this reference. Ask support to review it before recording it again."],
+  rejected: ["Rejected", "KudiLedger rejected this save. Review the details before recording a corrected transaction."],
+  committed: ["Verified as saved", "You can open the receipt for the saved record."],
+  recent: ["Recently checked", "Check the saved record again to reopen its receipt."]
+};
+
+function recoveryPath(id = "") {
+  return "/api/v1/businesses/" + encodeURIComponent(businessId) + "/recovery" +
+    (id ? "/" + encodeURIComponent(id) : "");
 }
 
-function sameTransaction(kind, attempted, saved) {
-  if (saved.found !== true ||
-      saved.kind !== kind ||
-      saved.reference !== attempted.reference) {
-    return false;
-  }
+function pendingFor(kind) {
+  return [...recoveryRecords.values()].some(record =>
+    record.kind === kind && ["prepared", "unresolved", "conflict"].includes(record.status));
+}
 
-  if (kind === "sale") {
-    return saved.customer_id === attempted.customer_id &&
-      sameAmount(saved.total, attempted.total) &&
-      sameAmount(saved.paid, attempted.paid, true) &&
-      cents(saved.paid) <= cents(saved.total);
-  }
+function keepRecovery(record) {
+  recoveryRequest++;
+  recoveryLoading = false;
+  recoveryRecords.set(record.id, record);
+  renderRecovery();
+}
 
-  if (kind === "repayment") {
-    return saved.customer_id === attempted.customer_id &&
-      sameAmount(saved.amount, attempted.amount);
-  }
+function recoveryButton(label, action, secondary = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  if (secondary) button.className = "secondary";
+  button.addEventListener("click", () => action(button));
+  return button;
+}
 
-  if (kind === "expense") {
-    return saved.category === attempted.category &&
-      saved.description === attempted.description &&
-      sameAmount(saved.amount, attempted.amount);
+function renderRecovery() {
+  const list = $("recovery-list");
+  const recent = $("recovery-recent");
+  const focused = document.activeElement.closest("[data-recovery-id]")?.dataset.recoveryId;
+  list.replaceChildren();
+  recent.replaceChildren();
+  let hasRecent = false;
+  let hasAttention = false;
+  for (const record of recoveryRecords.values()) {
+    if (record.status === "recent") hasRecent = true;
+    else hasAttention = true;
   }
+  $("recovery-history").hidden = !hasRecent;
+  if (!hasRecent) $("recovery-history").open = false;
+  $("recovery-refresh").disabled = recoveryLoading;
+  $("recovery-status").textContent = recoveryLoading ? "Loading recovery records..." :
+    !recoveryLoaded ? "Recovery is unavailable. Refresh this list before saving new records." :
+    !hasAttention ? "No records need checking." : "";
+  const nav = document.querySelector('.nav [data-open="recovery"]');
+  nav.toggleAttribute("data-pending", Object.keys(recoveryLabels).some(pendingFor));
 
-  return false;
+  for (const record of recoveryRecords.values()) {
+    const card = document.createElement("article");
+    card.className = "panel work-form";
+    card.dataset.recoveryId = record.id;
+    const title = document.createElement("h2");
+    title.tabIndex = -1;
+    title.textContent = recoveryLabels[record.kind] + " - " + recoveryStatus[record.status][0];
+    const reference = document.createElement("p");
+    reference.textContent = "Reference " + record.reference;
+    const started = document.createElement("p");
+    if (record.created_at) {
+      const timestamp = new Date(record.created_at.replace(" ", "T") + "Z");
+      started.textContent = "Started " + receiptDate.format(timestamp) + " (Nigeria time)";
+      started.className = "hint";
+    }
+    const guidance = document.createElement("p");
+    guidance.textContent = recoveryStatus[record.status][1];
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    if (record.status === "committed") {
+      actions.append(recoveryButton("View Receipt", button => viewReceipt({
+        kind: record.kind, transaction_id: record.transaction_id
+      }, button)));
+    }
+    if (["unresolved", "conflict", "recent"].includes(record.status)) {
+      actions.append(recoveryButton("Check saved transaction", button => checkRecovery(record, button)));
+    }
+    if (record.status === "prepared") {
+      actions.append(recoveryButton("Cancel unsent record", button => clearRecovery(record, "cancel", button)));
+    } else if (["committed", "rejected"].includes(record.status)) {
+      actions.append(recoveryButton("Remove from recovery", button => clearRecovery(record, "dismiss", button), true));
+    }
+    card.append(title, reference);
+    if (started.textContent) card.append(started);
+    card.append(guidance, actions);
+    (record.status === "recent" ? recent : list).append(card);
+    if (focused === record.id) title.focus();
+  }
+  if (focused && !recoveryRecords.has(focused)) $("recovery-refresh").focus();
+  for (const form of financialForms) form.updateButtons();
+}
+
+async function loadRecovery() {
+  const token = accessToken;
+  if (!token || !businessId) return;
+  const request = ++recoveryRequest;
+  recoveryLoading = true;
+  renderRecovery();
+  try {
+    const records = await api(recoveryPath());
+    if (token !== accessToken || request !== recoveryRequest) return;
+    const fresh = records.map(record => {
+      const previous = recoveryRecords.get(record.id);
+      return previous?.status === "committed" && record.status === "recent" ? previous : record;
+    });
+    recoveryRecords.clear();
+    for (const record of fresh) recoveryRecords.set(record.id, record);
+    recoveryLoaded = true;
+  } catch (_) {
+    if (token === accessToken && request === recoveryRequest) recoveryLoaded = false;
+  } finally {
+    if (request === recoveryRequest) {
+      recoveryLoading = false;
+      renderRecovery();
+    }
+  }
+}
+
+async function checkRecovery(record, button) {
+  const token = accessToken;
+  button.disabled = true;
+  message("Checking the saved record...");
+  try {
+    const result = await api(recoveryPath(record.id) + "/check", { method: "POST" });
+    if (token !== accessToken) return;
+    keepRecovery(result);
+    message(recoveryStatus[result.status][0] + ".");
+    if (result.status === "committed") await refreshDashboard();
+  } catch (error) {
+    if (token === accessToken) {
+      message(error.status === 403 ? error.message : "Could not check the record. Try again when connected.", "error");
+    } else if (!accessToken && error.status === 401) {
+      message("Sign in again to check the record.", "error");
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function clearRecovery(record, action, button) {
+  const token = accessToken;
+  button.disabled = true;
+  try {
+    await api(recoveryPath(record.id) + "?action=" + action, { method: "DELETE" });
+    if (token !== accessToken) return;
+    recoveryRequest++;
+    recoveryLoading = false;
+    recoveryRecords.delete(record.id);
+    renderRecovery();
+    message(action === "cancel" ? "Unsent record cancelled." : "Removed from recovery.");
+  } catch (error) {
+    if (token === accessToken) {
+      await loadRecovery();
+      if (token === accessToken) message(error.message, "error");
+    }
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function connectForm(id, endpoint, makePayload, confirmation) {
@@ -721,60 +881,40 @@ function connectForm(id, endpoint, makePayload, confirmation) {
     "/repayments": "repayment",
     "/expenses": "expense"
   }[endpoint] || null;
-
   const button = form.querySelector('button[type="submit"]');
   const buttonLabel = button.textContent;
   const screen = form.closest("[data-screen]").dataset.screen;
-  const navButton = document.querySelector(`.nav [data-open="${screen}"]`);
-  const attempts = new Map();
-  let busy = "";
+  const navButton = document.querySelector('.nav [data-open="' + screen + '"]');
+  let busy = false;
   let latestReceiptId = null;
 
   const status = document.createElement("p");
   status.setAttribute("role", "status");
-  status.hidden = true;
-  const checkButton = document.createElement("button");
-  checkButton.type = "button";
-  checkButton.className = "secondary";
-  checkButton.textContent = "Check saved transaction";
-  checkButton.hidden = true;
-  const receiptButton = document.createElement("button");
-  receiptButton.type = "button";
-  receiptButton.className = "secondary";
-  receiptButton.textContent = "View Receipt";
-  receiptButton.hidden = true;
-  receiptButton.addEventListener("click", () => {
-    if (latestReceiptId) {
-      viewReceipt({ kind, transaction_id: latestReceiptId }, receiptButton);
-    }
-  });
-
+  const checkButton = recoveryButton("Open Recovery", () => openScreen("recovery"), true);
+  const receiptButton = recoveryButton("View Receipt", trigger => {
+    if (latestReceiptId) viewReceipt({ kind, transaction_id: latestReceiptId }, trigger);
+  }, true);
   if (kind) {
     form.querySelector(".actions").append(checkButton, receiptButton);
     form.append(status);
   }
 
   function updateButtons() {
-    const pending = attempts.get(businessId);
-    button.disabled = Boolean(busy || pending);
-    button.textContent = busy === "saving" ? "Saving…" : buttonLabel;
-    checkButton.disabled = Boolean(busy);
-    checkButton.textContent = busy === "checking" ? "Checking…" : "Check saved transaction";
-    checkButton.hidden = !pending;
-    receiptButton.hidden = !latestReceiptId || busy || Boolean(pending);
-    if (navButton) {
+    const pending = kind && pendingFor(kind);
+    const blocked = kind && (!recoveryLoaded || pending);
+    button.disabled = busy || Boolean(blocked);
+    button.textContent = busy ? "Saving..." : buttonLabel;
+    checkButton.hidden = !blocked || busy;
+    receiptButton.hidden = !latestReceiptId || busy;
+    status.hidden = !blocked || busy;
+    status.textContent = pending ? "Check the earlier record before saving another one." :
+      "Load Recovery before saving a record.";
+    if (kind) {
       navButton.toggleAttribute("data-pending", Boolean(pending));
       if (pending) navButton.setAttribute("aria-label", navButton.textContent + ", check pending record");
       else navButton.removeAttribute("aria-label");
     }
-    status.hidden = !pending;
-    status.textContent = pending
-      ? "Reference " + pending.payload.reference +
-        ". Check its status before recording this transaction again."
-      : "";
-    for (const field of form.querySelectorAll("input, select")) {
-      field.disabled = button.disabled;
-    }
+    for (const field of form.querySelectorAll("input, select")) field.disabled = button.disabled;
   }
 
   function resetForm() {
@@ -782,117 +922,22 @@ function connectForm(id, endpoint, makePayload, confirmation) {
     const search = form.querySelector(".customer-filter");
     if (search) filterCustomerSelect(search);
   }
-
   financialForms.push({
     updateButtons,
     resetForm: () => {
       latestReceiptId = null;
       resetForm();
-    },
-    hasPending: () => attempts.size > 0
-  });
-
-  async function verifyPending() {
-    const owner = businessId;
-    const token = accessToken;
-    const original = attempts.get(owner);
-    if (busy || !original || !token) return;
-    busy = "checking";
-    updateButtons();
-    message("Checking whether the record was saved…");
-
-    try {
-      const base = "/api/v1/businesses/" +
-        encodeURIComponent(owner);
-      const params = new URLSearchParams({
-        kind: kind,
-        reference: original.payload.reference
-      });
-
-      const saved = await api(
-        base + "/transactions/lookup?" + params.toString()
-      );
-      if (token !== accessToken) return;
-      if (!saved || saved.kind !== kind ||
-          saved.reference !== original.payload.reference ||
-          typeof saved.found !== "boolean") {
-        throw new Error("The lookup returned an invalid response.");
-      }
-
-      if (saved.found) {
-        if (sameTransaction(kind, original.payload, saved)) {
-          attempts.delete(owner);
-          latestReceiptId = saved.id;
-          resetForm();
-          await refreshDashboard();
-          if (token === accessToken) message("Transaction verified as saved.");
-        } else {
-          message(
-            "REFERENCE CONFLICT: A different transaction uses " +
-            original.payload.reference +
-            ". Do not submit again. Review the records."
-          );
-        }
-      } else if (
-        original.errorStatus === 400 ||
-        original.errorStatus === 422
-      ) {
-        attempts.delete(owner);
-        message(
-          "The server rejected this transaction, and no " +
-          "matching reference was found. Correct the form " +
-          "before submitting again."
-        );
-      } else {
-        message(
-          "Transaction not found yet. Its final status is " +
-          "still uncertain. Do not submit again. " +
-          "Use Check saved transaction to recheck."
-        );
-      }
-    } catch (error) {
-      if (token !== accessToken) {
-        if (!accessToken && error.status === 401) {
-          message("Sign in again to check the pending transaction.");
-        }
-        return;
-      }
-      message(
-        "Could not verify transaction " +
-        original.payload.reference + ". " +
-        "Do not submit again. " + error.message
-      );
-    } finally {
-      busy = "";
-      updateButtons();
     }
-  }
-
-  checkButton.addEventListener("click", verifyPending);
+  });
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
-
-    const owner = businessId;
+    const business = businessId;
     const token = accessToken;
-    const pending = attempts.get(owner);
-    if (busy || pending) {
-      message(
-        "This transaction needs verification before " +
-        "another submission."
-      );
-      return;
-    }
-
-    if (!accessToken || !businessId) {
-      message("Sign in before recording transactions.");
-      return;
-    }
-
+    if (!token || !business || busy || (kind && (!recoveryLoaded || pendingFor(kind)))) return;
     if (!form.reportValidity()) return;
 
     const payload = makePayload(form);
-
     if (kind) {
       const amount = cents(kind === "sale" ? payload.total : payload.amount);
       const paid = kind === "sale" ? cents(payload.paid) : 0n;
@@ -904,76 +949,72 @@ function connectForm(id, endpoint, makePayload, confirmation) {
         return;
       }
     }
-
     if (!window.confirm(confirmation(payload))) return;
 
-    const attempt = { payload, errorStatus: null };
-    if (kind) attempts.set(owner, attempt);
-    busy = "saving";
+    busy = true;
     updateButtons();
-    message("Saving record…");
-
-    let saved = false;
-    let submissionError = null;
-
+    message("Saving record...");
     try {
-      const base = "/api/v1/businesses/" +
-        encodeURIComponent(owner);
-
-      const result = await api(base + endpoint, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload)
-      });
-      if (kind && token === accessToken) latestReceiptId = result.id;
-
-      saved = true;
-    } catch (error) {
-      submissionError = error;
-      attempt.errorStatus = error.status || null;
-    } finally {
-      busy = "";
-      if (saved || [401, 403].includes(attempt.errorStatus)) {
-        attempts.delete(owner);
+      if (!kind) {
+        await api("/api/v1/businesses/" + encodeURIComponent(business) + endpoint, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+      } else {
+        const attempt = await api(recoveryPath(), {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ ...payload, kind })
+        });
+        if (token !== accessToken) return;
+        // Once prepared, any failure to confirm the submit is uncertain locally.
+        keepRecovery({ ...attempt, status: "unresolved" });
+        const result = await api(recoveryPath(attempt.id) + "/submit", { method: "POST" });
+        if (token !== accessToken) return;
+        if (result.status !== "saved") {
+          keepRecovery(result);
+          openScreen("recovery");
+          return;
+        }
+        latestReceiptId = result.transaction_id;
+        try {
+          const acknowledged = await api(recoveryPath(attempt.id) + "/acknowledge", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ transaction_id: result.transaction_id })
+          });
+          if (token !== accessToken) return;
+          keepRecovery(acknowledged);
+        } catch (_) {
+          // The successful write is known; only acknowledgement failed.
+          if (token === accessToken) await loadRecovery();
+        }
       }
-      updateButtons();
-    }
-
-    if (token !== accessToken) {
-      if (!accessToken && attempt.errorStatus === 401) {
-        message("Session expired. Sign in again before recording transactions.");
-      }
-      return;
-    }
-    if (saved) {
+      if (token !== accessToken) return;
       resetForm();
       await refreshDashboard();
       if (token === accessToken) message("Record saved successfully.");
-      return;
-    }
-
-    if (!kind) {
+    } catch (error) {
+      if (token !== accessToken) {
+        if (!accessToken && error.status === 401) {
+          message("Sign in again and open Recovery to check the record.", "error");
+        }
+        return;
+      }
+      if (kind) {
+        await loadRecovery();
+        if (token === accessToken) {
+          openScreen("recovery");
+          message(error.status === 403 ? error.message : "Could not confirm the save. Check Recovery before trying again.", "error");
+        }
+      } else {
+        message("Customer was not confirmed as saved. Check the customer list before trying again.", "error");
+      }
+    } finally {
+      busy = false;
       updateButtons();
-      message(
-        "Customer was not confirmed as saved. " +
-        submissionError.message +
-        " Check the customer list before trying again."
-      );
-      return;
     }
-
-    if (submissionError.status === 401 ||
-        submissionError.status === 403) {
-      updateButtons();
-      message(submissionError.message);
-      return;
-    }
-
-    message(
-      "Submission response was not successful. " +
-      "Checking reference " + payload.reference + "."
-    );
-    await verifyPending();
   });
 }
 
@@ -985,6 +1026,11 @@ function referenceFor(form) {
 function clearSession() {
   accessToken = null;
   businessId = null;
+  recoveryRequest++;
+  recoveryLoading = false;
+  recoveryLoaded = false;
+  recoveryRecords.clear();
+  renderRecovery();
   hideReceipt();
   $("receipt-search").reset();
   $("receipt-paper").value = "a4";
@@ -1006,12 +1052,6 @@ function clearSession() {
   }
 }
 
-window.addEventListener("beforeunload", event => {
-  if (financialForms.some(form => form.hasPending())) {
-    event.preventDefault();
-    event.returnValue = true;
-  }
-});
 window.addEventListener("pagehide", hideReceipt);
 window.addEventListener("afterprint", () => {
   $("receipt-panel").classList.remove("print-authorized");
@@ -1084,6 +1124,7 @@ const { year, month, day } = Object.fromEntries(
   lagosCalendar.formatToParts(new Date()).map(({ type, value }) => [type, value])
 );
 $("report-date").value = [year, month, day].join("-");
+$("recovery-refresh").addEventListener("click", loadRecovery);
 $("refresh").addEventListener("click", () => {
   if ($("report-date").reportValidity()) refreshDashboard();
 });
@@ -1139,7 +1180,7 @@ $("login-form").addEventListener("submit", async event => {
     $("dashboard").hidden = false;
     $("logout").hidden = false;
     openScreen("overview");
-    await refreshDashboard();
+    await Promise.all([refreshDashboard(), loadRecovery()]);
   } catch (error) {
     message(error.message, "error");
   } finally {

@@ -159,6 +159,9 @@ class AccountLedger(RepaymentLedger):
         return token
 
     def _authorize(self, token, business_id):
+        return self._membership(token, business_id)["role"]
+
+    def _membership(self, token, business_id):
         if not isinstance(token, str) or not token:
             raise PermissionError("Authentication required")
 
@@ -168,7 +171,7 @@ class AccountLedger(RepaymentLedger):
 
         with self.connect() as db:
             row = db.execute(
-                """SELECT m.role FROM sessions s
+                """SELECT m.role, m.user_id FROM sessions s
                    JOIN memberships m
                      ON m.user_id = s.user_id
                    WHERE s.token_hash = ?
@@ -182,7 +185,7 @@ class AccountLedger(RepaymentLedger):
                 "Access denied for this business"
             )
 
-        return row["role"]
+        return row
 
     def is_active_session(self, token):
         """Check that a login token exists and has not expired."""

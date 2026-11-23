@@ -1,4 +1,4 @@
-﻿(async () => {
+(async () => {
   function assert(condition, label) {
     if (!condition) throw new Error(label);
   }
@@ -6,7 +6,9 @@
   const calls = [];
   const directory = [];
   let post = () => ({});
-  let lookup = () => { throw new Error("Unexpected lookup"); };
+  let checkResult = () => { throw new Error("Unexpected recovery check"); };
+  const journal = new Map();
+  let nextAttempt = 0;
   let fetchReceipt = () => { throw new Error("Unexpected receipt request"); };
   const report = {
     gross_sales: "250.01",
@@ -38,7 +40,35 @@
       }
       return response({ customers: directory });
     }
-    if (path.includes("/transactions/lookup")) return lookup(path);
+    if (path.includes("/recovery")) {
+      const [, business, id, action] =
+        path.match(/businesses\/([^/]+)\/recovery(?:\/([^/?]+))?(?:\/([^?]+))?/);
+      if (method === "GET") return response(
+        [...journal.values()].filter(row => row.business === business).map(row => row.summary)
+      );
+      if (!id && method === "POST") {
+        const summary = { id: String(++nextAttempt), kind: body.kind, reference: body.reference, status: "prepared" };
+        journal.set(summary.id, { business, body, summary });
+        return response(summary, 201);
+      }
+      if (method === "DELETE") {
+        journal.delete(id);
+        return response({ status: "cleared" });
+      }
+      const row = journal.get(id);
+      if (action === "acknowledge") {
+        row.summary = { ...row.summary, status: "recent" };
+        return response(row.summary);
+      }
+      if (action === "submit") {
+        calls.at(-1).body = row.body;
+        row.summary = { ...row.summary, status: "unresolved" };
+        const result = await post(row.body);
+        if (!result.ok) return result;
+        return response({ status: "saved", transaction_id: (await result.json()).id });
+      }
+      if (action === "check") return checkResult(row.summary);
+    }
     if (path.includes("/receipts?")) {
       return fetchReceipt(new URLSearchParams(path.split("?")[1]));
     }
@@ -51,11 +81,9 @@
   const tick = () => new Promise(resolve => setTimeout(resolve, 0));
   const field = (form, name) => form.elements.namedItem(name);
   const button = form => form.querySelector('[type="submit"]');
-  const check = form => form.querySelector('[type="button"]');
   const messageText = () => $("message").textContent;
-  const posts = () => calls.filter(call => call.method === "POST" &&
-    /\/(sales|repayments|expenses)$/.test(call.path));
-  const lookups = () => calls.filter(call => call.path.includes("/transactions/lookup"));
+  const posts = () => calls.filter(call => call.method === "POST" && call.path.endsWith("/submit"));
+  const checks = () => calls.filter(call => call.method === "POST" && call.path.endsWith("/check"));
   const nav = screen => document.querySelector('.nav [data-open="' + screen + '"]');
   function go(screen) {
     nav(screen).click();
@@ -78,12 +106,6 @@
 
   function enter(form, values) {
     for (const [name, value] of Object.entries(values)) field(form, name).value = value;
-  }
-
-  function guardNavigation() {
-    const event = new Event("beforeunload", { cancelable: true });
-    window.dispatchEvent(event);
-    return event.defaultPrevented;
   }
 
   const sale = $("sale-form");
@@ -163,16 +185,6 @@
     assert(messageText().includes("saved successfully"), "save feedback");
   }
 
-  const badSale = { ...saleValues, total: "bad", paid: "bad" };
-  assert(!sameTransaction("sale", badSale, { ...badSale, kind: "sale", found: true }),
-    "two malformed sale amounts must differ");
-  for (const [kind, values] of [["repayment", repaymentValues], ["expense", expenseValues]]) {
-    for (const amount of [null, [], "bogus", "0", "90000000000000.01"]) {
-      const bad = { ...values, amount };
-      assert(!sameTransaction(kind, bad, { ...bad, kind, found: true }),
-        "invalid matching " + kind + " amount");
-    }
-  }
   assert(money("89999999999999.99").endsWith(".99"), "exact kobo formatting");
 
   const search = $("receipt-search");
@@ -286,97 +298,64 @@
   await signIn("owner@example.test");
   go("sales");
 
-  const miss = { found: false, kind: "sale", reference: "SALE-1" };
   enter(sale, { ...saleValues, reference: "" });
   window.confirm = () => true;
   submit(sale);
   await tick();
   assert(/^WEB-[a-f0-9]{32}$/.test(posts().at(-1).body.reference),
     "blank reference assigned on a confirmed save");
-  for (const status of [400, 422]) {
-    post = () => rejected(status);
-    lookup = () => response(miss);
-    enter(sale, saleValues);
-    submit(sale);
-    await tick();
-    assert(!button(sale).disabled && messageText().includes("rejected"),
-      "known rejection permits correction " + status);
-  }
-  const beforeAuthRejections = lookups().length;
-  for (const status of [403, 401]) {
-    post = () => rejected(status);
-    enter(sale, saleValues);
-    submit(sale);
-    await tick();
-    assert(lookups().length === beforeAuthRejections && !guardNavigation(),
-      "authorization rejection clears pending " + status);
-  }
-  assert($("dashboard").hidden, "expired POST session hides dashboard");
-  await signIn("owner@example.test");
-  go("sales");
 
   let loseResponse;
-  let saved;
-  post = body => {
-    saved = { ...body, found: true, kind: "sale", id: "recovered-sale" };
-    return new Promise((_, reject) => { loseResponse = reject; });
-  };
-  lookup = () => response(miss);
+  post = () => new Promise((_, reject) => { loseResponse = reject; });
   enter(sale, saleValues);
   const beforeLost = posts().length;
   submit(sale);
   submit(sale);
-  assert(button(sale).textContent === "Saving…", "saving state shown during pending request");
-  assert(guardNavigation() && field(sale, "total").disabled, "pending submit locks fields and guards refresh");
-  assert(posts().length === beforeLost + 1, "double submit");
-  field(sale, "total").value = "25";
+  await tick();
+  assert(button(sale).textContent === "Saving..." && field(sale, "total").disabled,
+    "pending request locks the form");
+  assert(posts().length === beforeLost + 1, "double submit is blocked");
   loseResponse(new TypeError("Connection interrupted"));
   await tick();
-  assert(button(sale).disabled && !check(sale).hidden, "lookup miss keeps pending");
-  assert(messageText().includes("uncertain"), "unknown status feedback");
-  go("overview");
-  assert(nav("sales").hasAttribute("data-pending") &&
-    nav("sales").getAttribute("aria-label").includes("pending"), "pending recovery stays discoverable");
-  go("sales");
+  assert(!document.querySelector('[data-screen="recovery"]').hidden, "interrupted save opens Recovery");
+  assert($("recovery-list").textContent.includes("SALE-1"), "reference remains visible");
+  assert(button(sale).disabled && nav("sales").hasAttribute("data-pending"), "pending save blocks new writes");
+  const check = () => [...$("recovery-list").querySelectorAll("button")].find(
+    control => control.textContent === "Check saved transaction"
+  );
 
-  lookup = () => response({ unexpected: true });
-  check(sale).click();
+  checkResult = () => { throw new TypeError("Offline"); };
+  check().click();
   await tick();
-  assert(button(sale).disabled && messageText().includes("invalid response"), "malformed lookup");
-  lookup = () => response({ ...saved, total: "25" });
-  check(sale).click();
+  assert(messageText().includes("Try again when connected") && button(sale).disabled,
+    "offline lookup leaves uncertainty and lock");
+  checkResult = summary => response({ ...summary, status: "conflict" });
+  check().click();
   await tick();
-  assert(button(sale).disabled && messageText().includes("REFERENCE CONFLICT"), "reference conflict");
+  assert($("recovery-list").textContent.includes("Reference already used") && button(sale).disabled,
+    "conflict remains blocked");
 
-  lookup = () => rejected(401);
-  check(sale).click();
+  checkResult = () => rejected(401);
+  check().click();
   await tick();
-  assert($("dashboard").hidden && guardNavigation(), "expired lookup preserves pending");
-  assert(!$("customers").textContent, "old tenant customer data cleared");
+  assert($("dashboard").hidden && !$("recovery-list").textContent, "expiry clears visible recovery data");
   await signIn("other@example.test");
-  go("sales");
-  const beforeOther = lookups().length;
-  assert(check(sale).hidden && !button(sale).disabled, "pending state scoped to business");
-  check(sale).click();
-  await tick();
-  assert(lookups().length === beforeOther, "other business cannot check prior reference");
+  go("recovery");
+  assert(!check() && !$("recovery-list").textContent.includes("SALE-1"), "other business has no recovery details");
   $("logout").click();
   await tick();
-  assert($("dashboard").hidden, "logout");
   await signIn("owner@example.test");
-  go("sales");
-  assert(!check(sale).hidden && button(sale).disabled, "original business can recover after sign-in");
-  lookup = () => response({ ...saved, paid: "100.00" });
-  check(sale).click();
+  go("recovery");
+  assert(check() && button(sale).disabled, "journal survives sign-out and sign-in");
+  checkResult = summary => response({ ...summary, status: "committed", transaction_id: "recovered-sale" });
+  check().click();
   await tick();
-  assert(messageText().includes("verified as saved") && !button(sale).disabled,
-    "lookup verifies original snapshot despite form edit");
-  assert(posts().length === beforeLost + 1, "recovery never repeats POST");
-  assert(lookups().every(call => call.method === "GET" && call.options.cache === "no-store"),
-    "lookups use fresh GETs");
-  assert(!guardNavigation(), "navigation allowed after verification");
-  assert([...sale.querySelectorAll("button")].some(item =>
-    item.textContent === "View Receipt" && !item.hidden), "recovery offers a receipt");
+  assert($("recovery-list").textContent.includes("Verified as saved") && !button(sale).disabled,
+    "checked match unlocks financial form");
+  assert($("recovery-list").textContent.includes("View Receipt"), "verified record offers receipt");
+  assert(posts().length === beforeLost + 1, "recovery never repeats financial POST");
+  assert(checks().every(call => call.options.cache === "no-store"), "checks bypass browser cache");
+
 })().then(
   () => parent.postMessage({ width: innerWidth, result: "PASS" }, "*"),
   error => parent.postMessage({ width: innerWidth, result: error.stack || String(error) }, "*")
