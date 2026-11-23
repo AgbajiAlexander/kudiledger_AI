@@ -274,17 +274,23 @@ form.panel label { margin-bottom: 12px; }
 
 let accessToken = null;
 let businessId = null;
+const financialForms = [];
 const $ = id => document.getElementById(id);
 
-const money = value => {
-  const amount = Number(value);
-  return Number.isFinite(amount)
-    ? new Intl.NumberFormat("en-NG", {
-        style: "currency",
-        currency: "NGN"
-      }).format(amount)
-    : "—";
-};
+const naira = new Intl.NumberFormat("en-NG", {
+  style: "currency",
+  currency: "NGN"
+});
+const maxKobo = 9_000_000_000_000_000n;
+
+function money(value) {
+  const amount = cents(value);
+  if (amount === null) return "—";
+  const fraction = String(amount % 100n).padStart(2, "0");
+  return naira.formatToParts(amount / 100n)
+    .map(part => part.type === "fraction" ? fraction : part.value)
+    .join("");
+}
 
 function message(value) {
   $("message").textContent = value;
@@ -292,15 +298,14 @@ function message(value) {
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
-  if (accessToken) {
-    headers.Authorization = "Bearer " + accessToken;
+  const token = accessToken;
+  if (token) {
+    headers.Authorization = "Bearer " + token;
   }
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(path, { ...options, headers, cache: "no-store" });
   if (!response.ok) {
-    if (response.status === 401) {
-      accessToken = null;
-      $("dashboard").hidden = true;
-      $("login-panel").hidden = false;
+    if (response.status === 401 && token && token === accessToken) {
+      clearSession();
     }
     const error = new Error(
       response.status === 401 ? "Session expired or invalid." :
@@ -338,6 +343,7 @@ function fillTable(id, records, makeCells) {
 }
 
 async function refreshDashboard() {
+  const token = accessToken;
   const button = $("refresh");
   button.disabled = true;
   message("");
@@ -350,6 +356,7 @@ async function refreshDashboard() {
       api(base + "/customers"),
       api(base + "/expenses")
     ]);
+    if (token !== accessToken) return;
 
     $("gross-sales").textContent = money(report.gross_sales);
     $("receipts").textContent = money(report.recorded_cash_received);
@@ -363,7 +370,7 @@ async function refreshDashboard() {
     fillTable("expense-list", expenseList,
       item => [item.category, money(item.amount)]);
   } catch (error) {
-    message(error.message);
+    if (token === accessToken || !accessToken) message(error.message);
   } finally {
     button.disabled = false;
   }
@@ -404,15 +411,23 @@ function transactionReference() {
 
 
 function cents(value) {
-  const text = String(value);
-  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
-  const parts = text.split(".");
+  if (typeof value !== "string" || !/^\d+(\.\d{1,2})?$/.test(value)) {
+    return null;
+  }
+  const parts = value.split(".");
   return BigInt(parts[0]) * 100n +
     BigInt((parts[1] || "").padEnd(2, "0"));
 }
 
+function sameAmount(saved, attempted, allowZero = false) {
+  const amount = cents(saved);
+  return amount !== null && amount <= maxKobo &&
+    (allowZero || amount > 0n) &&
+    amount === cents(attempted);
+}
+
 function sameTransaction(kind, attempted, saved) {
-  if (!saved.found ||
+  if (saved.found !== true ||
       saved.kind !== kind ||
       saved.reference !== attempted.reference) {
     return false;
@@ -420,19 +435,20 @@ function sameTransaction(kind, attempted, saved) {
 
   if (kind === "sale") {
     return saved.customer_id === attempted.customer_id &&
-      cents(saved.total) === cents(attempted.total) &&
-      cents(saved.paid) === cents(attempted.paid);
+      sameAmount(saved.total, attempted.total) &&
+      sameAmount(saved.paid, attempted.paid, true) &&
+      cents(saved.paid) <= cents(saved.total);
   }
 
   if (kind === "repayment") {
     return saved.customer_id === attempted.customer_id &&
-      cents(saved.amount) === cents(attempted.amount);
+      sameAmount(saved.amount, attempted.amount);
   }
 
   if (kind === "expense") {
     return saved.category === attempted.category &&
       saved.description === attempted.description &&
-      cents(saved.amount) === cents(attempted.amount);
+      sameAmount(saved.amount, attempted.amount);
   }
 
   return false;
@@ -447,9 +463,12 @@ function connectForm(id, endpoint, makePayload, confirmation) {
   }[endpoint] || null;
 
   const button = form.querySelector('button[type="submit"]');
-  let pending = null;
+  const attempts = new Map();
   let busy = false;
 
+  const status = document.createElement("p");
+  status.setAttribute("role", "status");
+  status.hidden = true;
   const checkButton = document.createElement("button");
   checkButton.type = "button";
   checkButton.className = "secondary";
@@ -458,35 +477,41 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
   if (kind) {
     form.querySelector(".actions").append(checkButton);
+    form.append(status);
   }
 
   function updateButtons() {
+    const pending = attempts.get(businessId);
     button.disabled = busy || Boolean(pending);
     checkButton.disabled = busy;
     checkButton.hidden = !pending;
+    status.hidden = !pending;
+    status.textContent = pending
+      ? "Reference " + pending.payload.reference +
+        ". Check its status before recording this transaction again."
+      : "";
+    for (const field of form.querySelectorAll("input, select")) {
+      field.disabled = button.disabled;
+    }
   }
 
-  async function savedSuccessfully() {
-    pending = null;
-    form.reset();
-    delete form.dataset.reference;
-    updateButtons();
-    await refreshDashboard();
-    message("Transaction verified as saved.");
-  }
+  financialForms.push({
+    updateButtons,
+    resetForm: () => form.reset(),
+    hasPending: () => attempts.size > 0
+  });
 
   async function verifyPending() {
-    if (!pending || !kind || !businessId || !accessToken) {
-      return;
-    }
-
-    const original = pending;
+    const owner = businessId;
+    const token = accessToken;
+    const original = attempts.get(owner);
+    if (busy || !original || !token) return;
     busy = true;
     updateButtons();
 
     try {
       const base = "/api/v1/businesses/" +
-        encodeURIComponent(businessId);
+        encodeURIComponent(owner);
       const params = new URLSearchParams({
         kind: kind,
         reference: original.payload.reference
@@ -495,10 +520,19 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       const saved = await api(
         base + "/transactions/lookup?" + params.toString()
       );
+      if (token !== accessToken) return;
+      if (!saved || saved.kind !== kind ||
+          saved.reference !== original.payload.reference ||
+          typeof saved.found !== "boolean") {
+        throw new Error("The lookup returned an invalid response.");
+      }
 
       if (saved.found) {
         if (sameTransaction(kind, original.payload, saved)) {
-          await savedSuccessfully();
+          attempts.delete(owner);
+          form.reset();
+          await refreshDashboard();
+          if (token === accessToken) message("Transaction verified as saved.");
         } else {
           message(
             "REFERENCE CONFLICT: A different transaction uses " +
@@ -510,7 +544,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
         original.errorStatus === 400 ||
         original.errorStatus === 422
       ) {
-        pending = null;
+        attempts.delete(owner);
         message(
           "The server rejected this transaction, and no " +
           "matching reference was found. Correct the form " +
@@ -524,6 +558,12 @@ function connectForm(id, endpoint, makePayload, confirmation) {
         );
       }
     } catch (error) {
+      if (token !== accessToken) {
+        if (!accessToken && error.status === 401) {
+          message("Sign in again to check the pending transaction.");
+        }
+        return;
+      }
       message(
         "Could not verify transaction " +
         original.payload.reference + ". " +
@@ -540,6 +580,9 @@ function connectForm(id, endpoint, makePayload, confirmation) {
   form.addEventListener("submit", async event => {
     event.preventDefault();
 
+    const owner = businessId;
+    const token = accessToken;
+    const pending = attempts.get(owner);
     if (busy || pending) {
       message(
         "This transaction needs verification before " +
@@ -557,8 +600,20 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
     const payload = makePayload(form);
 
+    if (kind) {
+      const amount = cents(kind === "sale" ? payload.total : payload.amount);
+      const paid = kind === "sale" ? cents(payload.paid) : 0n;
+      if (amount === null || amount <= 0n || amount > maxKobo ||
+          paid === null || paid > amount) {
+        message("Enter valid naira amounts with up to two decimal places.");
+        return;
+      }
+    }
+
     if (!window.confirm(confirmation(payload))) return;
 
+    const attempt = { payload, errorStatus: null };
+    if (kind) attempts.set(owner, attempt);
     busy = true;
     updateButtons();
     message("");
@@ -568,7 +623,7 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 
     try {
       const base = "/api/v1/businesses/" +
-        encodeURIComponent(businessId);
+        encodeURIComponent(owner);
 
       await api(base + endpoint, {
         method: "POST",
@@ -579,17 +634,25 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       saved = true;
     } catch (error) {
       submissionError = error;
+      attempt.errorStatus = error.status || null;
     } finally {
       busy = false;
+      if (saved || [401, 403].includes(attempt.errorStatus)) {
+        attempts.delete(owner);
+      }
+      updateButtons();
     }
 
+    if (token !== accessToken) {
+      if (!accessToken && attempt.errorStatus === 401) {
+        message("Session expired. Sign in again before recording transactions.");
+      }
+      return;
+    }
     if (saved) {
-      pending = null;
       form.reset();
-      delete form.dataset.reference;
-      updateButtons();
       await refreshDashboard();
-      message("Record saved successfully.");
+      if (token === accessToken) message("Record saved successfully.");
       return;
     }
 
@@ -610,12 +673,6 @@ function connectForm(id, endpoint, makePayload, confirmation) {
       return;
     }
 
-    pending = {
-      payload: payload,
-      errorStatus: submissionError.status || null
-    };
-    updateButtons();
-
     message(
       "Submission response was not successful. " +
       "Checking reference " + payload.reference + "."
@@ -625,16 +682,32 @@ function connectForm(id, endpoint, makePayload, confirmation) {
 }
 
 function referenceFor(form) {
-  if (!form.dataset.reference) {
-    const current = form.elements.namedItem("reference");
-    form.dataset.reference = (
-      current && current.value.trim()
-        ? current.value.trim()
-        : transactionReference()
-    );
-  }
-  return form.dataset.reference;
+  return form.elements.namedItem("reference").value.trim() ||
+    transactionReference();
 }
+
+function clearSession() {
+  accessToken = null;
+  businessId = null;
+  $("dashboard").hidden = true;
+  $("login-panel").hidden = false;
+  for (const form of financialForms) {
+    form.resetForm();
+    form.updateButtons();
+  }
+  populateCustomerSelects([]);
+  for (const id of ["customers", "expense-list", "gross-sales",
+                    "receipts", "expenses-total", "outstanding"]) {
+    $(id).replaceChildren();
+  }
+}
+
+window.addEventListener("beforeunload", event => {
+  if (financialForms.some(form => form.hasPending())) {
+    event.preventDefault();
+    event.returnValue = true;
+  }
+});
 
 connectForm(
   "customer-form",
@@ -725,6 +798,7 @@ $("login-form").addEventListener("submit", async event => {
     }
 
     businessId = businesses[0].id;
+    financialForms.forEach(form => form.updateButtons());
     $("login-panel").hidden = true;
     $("dashboard").hidden = false;
     await refreshDashboard();
@@ -736,18 +810,18 @@ $("login-form").addEventListener("submit", async event => {
 });
 
 $("logout").addEventListener("click", async () => {
+  const token = accessToken;
   try {
-    if (accessToken) {
+    if (token) {
       await api("/api/v1/auth/logout", { method: "POST" });
     }
   } catch (_) {
     // Clear local state even if the server is unreachable.
   } finally {
-    accessToken = null;
-    businessId = null;
-    $("dashboard").hidden = true;
-    $("login-panel").hidden = false;
-    message("Signed out of this dashboard.");
+    if (token === accessToken || !accessToken) {
+      clearSession();
+      message("Signed out of this dashboard.");
+    }
   }
 });
 </script>

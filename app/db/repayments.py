@@ -121,6 +121,14 @@ class RepaymentLedger(Ledger):
             # Serialize financial writes in this SQLite database.
             db.execute("BEGIN IMMEDIATE")
 
+            existing = db.execute(
+                """SELECT 1 FROM repayments
+                   WHERE business_id = ? AND repayment_reference = ?""",
+                (business_id, reference.strip()),
+            ).fetchone()
+            if existing:
+                raise ValueError("Duplicate repayment reference")
+
             outstanding = self._balance_kobo(
                 db, business_id, customer_id
             )
@@ -150,9 +158,9 @@ class RepaymentLedger(Ledger):
                     ),
                 )
             except sqlite3.IntegrityError as error:
-                raise ValueError(
-                    "Duplicate repayment reference or invalid data"
-                ) from error
+                if error.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+                    raise ValueError("Duplicate repayment reference") from None
+                raise
 
         return repayment_id
 

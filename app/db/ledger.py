@@ -21,12 +21,10 @@ def to_kobo(amount):
     if value.as_tuple().exponent < -2:
         raise ValueError("Use at most two decimal places")
 
-    kobo = int(value * 100)
-
-    if kobo > 9_000_000_000_000_000:
+    if value > Decimal("90000000000000"):
         raise ValueError("Amount exceeds supported limit")
 
-    return kobo
+    return int(value * 100)
 
 
 def from_kobo(kobo):
@@ -205,9 +203,9 @@ class Ledger:
                     ),
                 )
             except sqlite3.IntegrityError as error:
-                raise ValueError(
-                    "Duplicate sale reference or invalid sale"
-                ) from error
+                if error.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+                    raise ValueError("Duplicate sale reference") from None
+                raise
 
         return sale_id
 

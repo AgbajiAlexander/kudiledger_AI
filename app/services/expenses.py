@@ -92,9 +92,9 @@ class ExpenseLedger(StatementLedger):
                     ),
                 )
             except sqlite3.IntegrityError as error:
-                raise ValueError(
-                    "Duplicate expense reference or invalid expense"
-                ) from error
+                if error.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+                    raise ValueError("Duplicate expense reference") from None
+                raise
 
         return expense_id
 

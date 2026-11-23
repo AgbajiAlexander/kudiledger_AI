@@ -24,6 +24,8 @@ class ReportLedger(ExpenseLedger):
             raise ValueError("Report date must use YYYY-MM-DD")
 
         with self.connect() as db:
+            # Use one snapshot for every figure in the report.
+            db.execute("BEGIN")
             sales = db.execute(
                 """SELECT COUNT(*) AS count,
                           COALESCE(SUM(total_kobo), 0) AS total,

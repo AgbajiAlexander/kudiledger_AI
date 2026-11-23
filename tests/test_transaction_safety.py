@@ -1,5 +1,6 @@
 ﻿import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -49,6 +50,63 @@ class TestTransactionSafety(unittest.TestCase):
             headers=self.headers,
             json=payload,
         )
+
+    def test_competing_repayments_cannot_overpay(self):
+        sale = self.post("/sales", {
+            "customer_id": self.customer, "reference": "RACE-SALE",
+            "total": "100", "paid": "0", "confirmed": True,
+        })
+        self.assertEqual(sale.status_code, 201)
+        payments = [
+            {
+                "customer_id": self.customer, "reference": reference,
+                "amount": "60", "confirmed": True,
+            }
+            for reference in ("RACE-1", "RACE-2")
+        ]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda data: self.post("/repayments", data), payments
+            ))
+        self.assertCountEqual(
+            [result.status_code for result in results], [201, 400]
+        )
+
+        for result, payment in zip(results, payments):
+            if result.status_code == 201:
+                duplicate = self.post("/repayments", payment)
+                self.assertEqual(duplicate.status_code, 400)
+                self.assertEqual(
+                    duplicate.json()["detail"], "Duplicate repayment reference"
+                )
+            else:
+                self.assertEqual(
+                    result.json()["detail"], "Repayment exceeds outstanding balance"
+                )
+
+        balance = self.client.get(
+            self.base + "/customers/" + self.customer + "/balance",
+            headers=self.headers,
+        )
+        self.assertEqual(balance.status_code, 200)
+        self.assertEqual(balance.json()["balance_naira"], "40.00")
+
+    def test_out_of_range_money_is_a_validation_error(self):
+        response = self.post("/sales", {
+            "customer_id": self.customer, "reference": "OUT-OF-RANGE",
+            "total": "1e1000000", "paid": "0", "confirmed": True,
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Amount exceeds supported limit")
+
+    def test_validation_response_omits_input_values(self):
+        credential = "SyntheticSecretValue"
+        response = self.client.post("/api/v1/auth/login", json=[
+            {"email": "owner@example.test", "password": credential},
+        ])
+        self.assertEqual(response.status_code, 422)
+        self.assertNotIn(credential, response.text)
+        self.assertNotIn("input", response.json()["detail"][0])
 
     def test_duplicate_sale_same_payload(self):
         payload = {
