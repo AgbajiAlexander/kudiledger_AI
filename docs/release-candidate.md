@@ -21,6 +21,8 @@ The application audit covered dashboard and CSP, credentials and sessions, ledge
 
 [Release candidate checks](../.github/workflows/release-candidate.yml) runs on feature pushes, pull requests to main and candidate tags. It requires the full synthetic Python suite with Chrome and Caddy, systemd validation, JavaScript syntax, a pinned dependency audit, and a tracked private-file check. The final `release-gate` job fails if either prerequisite job fails or is skipped. Review the exact commit's run and its test-results artifact. [Branch workflow runs](https://github.com/AgbajiAlexander/kudiledger_AI/actions?query=branch%3Afeature%2FKLD-006C1-release-candidate)
 
+Hosted Ubuntu runs a sandbox startup probe for its preinstalled Chrome. It uses the installed helper if available and a profile scoped to the preinstalled binary if Ubuntu blocks Chrome's user namespace. The browser tests keep sandboxing enabled. [Chromium sandbox guidance](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)
+
 Before releasing, require **release-gate** as a status check in the main branch ruleset and record owner approval for the exact green SHA. Verify the ruleset in GitHub. Release or deployment is a separate approved step. This workflow has no release, tag, deployment, email or infrastructure credentials.
 
 The tracked-file guard rejects database files, key and certificate artifacts, private environment filenames and common high-confidence credential patterns. This is a targeted check of the tracked tree. Review Git history if an exposure is suspected. Application logs omit raw input, paths, headers and errors. Keep live secrets out of command history, CI inputs, captures and operational logs.
