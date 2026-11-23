@@ -356,7 +356,8 @@ async function refreshDashboard() {
       money(report.current_outstanding_debt);
 
     fillTable("customers", directory.customers,
-      item => [item.name, money(item.outstanding_balance)]);\n    populateCustomerSelects(directory.customers);
+      item => [item.name, money(item.outstanding_balance)]);
+    populateCustomerSelects(directory.customers);
     fillTable("expense-list", expenseList,
       item => [item.category, money(item.amount)]);
   } catch (error) {
