@@ -40,30 +40,6 @@ jobs:
           openssl version
           work="$(mktemp -d)"
           echo "KUDILEDGER_BROWSER=$browser" >> "$GITHUB_ENV"
-          if [ -u /opt/google/chrome/chrome-sandbox ]; then
-            export CHROME_DEVEL_SANDBOX=/opt/google/chrome/chrome-sandbox
-            echo "CHROME_DEVEL_SANDBOX=$CHROME_DEVEL_SANDBOX" >> "$GITHUB_ENV"
-          fi
-          # Verify Chrome keeps its sandbox. Ubuntu can require a path-specific
-          # profile for the runner's preinstalled Chrome binary.
-          if ! "$browser" --headless --disable-gpu --dump-dom about:blank \
-                --user-data-dir="$work/chrome-probe" >"$work/chrome-probe.log" 2>&1; then
-            if ! grep -q "No usable sandbox" "$work/chrome-probe.log"; then
-              cat "$work/chrome-probe.log"
-              exit 1
-            fi
-            test -x /opt/google/chrome/chrome
-            cat >"$work/chrome-ci.apparmor" <<'EOF'
-          abi <abi/4.0>,
-          include <tunables/global>
-          profile kudiledger-ci-chrome /opt/google/chrome/chrome flags=(unconfined) {
-            userns,
-          }
-          EOF
-            sudo apparmor_parser -r "$work/chrome-ci.apparmor"
-            "$browser" --headless --disable-gpu --dump-dom about:blank \
-              --user-data-dir="$work/chrome-retry" >/dev/null
-          fi
           archive=caddy_2.11.9_linux_amd64.tar.gz
           curl --fail --silent --show-error --location --retry 2 \
             "https://github.com/caddyserver/caddy/releases/download/v2.11.9/$archive" \
@@ -84,7 +60,7 @@ jobs:
             node --check "$script"
           done
           mkdir -p "$RUNNER_TEMP/rc-evidence"
-          python -m unittest discover -v 2>&1 | tee "$RUNNER_TEMP/rc-evidence/unittest.log"
+          bash scripts/run_ci_browser_suite.sh 2>&1 | tee "$RUNNER_TEMP/rc-evidence/unittest.log"
           if grep -E 'skipped |^OK \(skipped=' "$RUNNER_TEMP/rc-evidence/unittest.log"; then
             echo "The release suite must run all browser and staging tests"
             exit 1

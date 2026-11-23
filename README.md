@@ -2,6 +2,8 @@
 
 KudiLedger is a local financial ledger for Nigerian small businesses. The dashboard lets an owner sign in, add customers, record sales and debt repayments, record expenses, and view a daily overview and customer balances. The API also supports customer statements, debt adjustments and eligible unpaid sale reversals.
 
+For pilot review, see the [interactive synthetic demo and physical-device checklist](docs/commissioning-acceptance.md), [release manifest](docs/commissioning-manifest.md) and [commissioning plan](docs/commissioning-plan.md).
+
 ## Run locally on Windows
 
 Run these commands in PowerShell from the repository directory. The project is verified with Python 3.13. Use Node.js on PATH for the dashboard syntax tests and a Chromium browser for the interaction test.
