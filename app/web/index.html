@@ -86,7 +86,20 @@ th, td {
   font-size: 14px;
 }
 th:last-child, td:last-child { text-align: right; }
-.empty { font-size: 14px; color: #7b8580; }
+.empty { font-size: 14px; color: #7b8580; }\n
+select {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-top: 6px;
+  border: 1px solid #d2dad5;
+  border-radius: 9px;
+  background: white;
+  font: inherit;
+}
+form.panel { margin-bottom: 0; }
+form.panel label { margin-bottom: 12px; }
+
 [hidden] { display: none !important; }
 @media (max-width: 850px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
@@ -137,6 +150,86 @@ th:last-child, td:last-child { text-align: right; }
       <button id="logout" class="secondary" type="button">Log out</button>
     </div>
   </div>
+
+
+  <section class="panel">
+    <h2>Quick actions</h2>
+    <p>Confirm each transaction before it is saved.</p>
+
+    <div class="columns">
+      <form id="customer-form" class="panel">
+        <h2>Add customer</h2>
+        <label>Customer name
+          <input name="name" required maxlength="150">
+        </label>
+        <div class="actions">
+          <button type="submit">Save customer</button>
+        </div>
+      </form>
+
+      <form id="sale-form" class="panel">
+        <h2>Record sale</h2>
+        <label>Customer
+          <select name="customer_id" class="customer-select"
+                  required></select>
+        </label>
+        <label>Sale reference
+          <input name="reference" required maxlength="100">
+        </label>
+        <label>Total amount (NGN)
+          <input name="total" type="number" required
+                 min="0.01" step="0.01">
+        </label>
+        <label>Already paid (NGN)
+          <input name="paid" type="number" required
+                 min="0" step="0.01" value="0">
+        </label>
+        <div class="actions">
+          <button type="submit">Record sale</button>
+        </div>
+      </form>
+
+      <form id="expense-form" class="panel">
+        <h2>Record expense</h2>
+        <label>Reference
+          <input name="reference" required maxlength="100">
+        </label>
+        <label>Category
+          <input name="category" required minlength="2"
+                 maxlength="80" placeholder="Transport">
+        </label>
+        <label>Description
+          <input name="description" required minlength="3"
+                 maxlength="500">
+        </label>
+        <label>Amount (NGN)
+          <input name="amount" type="number" required
+                 min="0.01" step="0.01">
+        </label>
+        <div class="actions">
+          <button type="submit">Save expense</button>
+        </div>
+      </form>
+
+      <form id="repayment-form" class="panel">
+        <h2>Receive debt repayment</h2>
+        <label>Customer
+          <select name="customer_id" class="customer-select"
+                  required></select>
+        </label>
+        <label>Reference
+          <input name="reference" required maxlength="100">
+        </label>
+        <label>Amount received (NGN)
+          <input name="amount" type="number" required
+                 min="0.01" step="0.01">
+        </label>
+        <div class="actions">
+          <button type="submit">Save repayment</button>
+        </div>
+      </form>
+    </div>
+  </section>
 
   <div class="grid">
     <div class="metric">
@@ -264,6 +357,7 @@ async function refreshDashboard() {
 
     fillTable("customers", directory.customers,
       item => [item.name, money(item.outstanding_balance)]);
+    populateCustomerSelects(directory.customers);
     fillTable("expense-list", expenseList,
       item => [item.category, money(item.amount)]);
   } catch (error) {
@@ -272,6 +366,152 @@ async function refreshDashboard() {
     button.disabled = false;
   }
 }
+
+
+function populateCustomerSelects(customers) {
+  for (const select of
+       document.querySelectorAll(".customer-select")) {
+    const previous = select.value;
+    select.replaceChildren();
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select customer";
+    select.append(placeholder);
+
+    for (const customer of customers) {
+      const option = document.createElement("option");
+      option.value = customer.id;
+      option.textContent = customer.name;
+      select.append(option);
+    }
+
+    if (customers.some(customer => customer.id === previous)) {
+      select.value = previous;
+    }
+  }
+}
+
+function formData(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+function transactionReference() {
+  return "WEB-" + crypto.randomUUID();
+}
+
+function connectForm(id, endpoint, makePayload, confirmation) {
+  const form = $(id);
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    if (!accessToken || !businessId) {
+      message("Sign in before recording transactions.");
+      return;
+    }
+
+    if (!form.reportValidity()) return;
+
+    const payload = makePayload(form);
+
+    if (!window.confirm(confirmation(payload))) return;
+
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    message("");
+
+    try {
+      const base = "/api/v1/businesses/" +
+        encodeURIComponent(businessId);
+
+      await api(base + endpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      form.reset();
+      delete form.dataset.reference;
+      await refreshDashboard();
+      message("Record saved successfully.");
+    } catch (error) {
+      message("Not confirmed as saved: " + error.message +
+        " Check the records before trying again.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function referenceFor(form) {
+  if (!form.dataset.reference) {
+    const current = form.elements.namedItem("reference");
+    form.dataset.reference = (
+      current && current.value.trim()
+        ? current.value.trim()
+        : transactionReference()
+    );
+  }
+  return form.dataset.reference;
+}
+
+connectForm(
+  "customer-form",
+  "/customers",
+  form => ({name: formData(form).name.trim()}),
+  payload => "Register customer " + payload.name + "?"
+);
+
+connectForm(
+  "sale-form",
+  "/sales",
+  form => {
+    const values = formData(form);
+    return {
+      customer_id: values.customer_id,
+      reference: referenceFor(form),
+      total: values.total,
+      paid: values.paid,
+      confirmed: true
+    };
+  },
+  payload => "Confirm sale of " + money(payload.total) +
+    " with " + money(payload.paid) + " already paid?"
+);
+
+connectForm(
+  "expense-form",
+  "/expenses",
+  form => {
+    const values = formData(form);
+    return {
+      reference: referenceFor(form),
+      category: values.category.trim(),
+      description: values.description.trim(),
+      amount: values.amount,
+      confirmed: true
+    };
+  },
+  payload => "Confirm business expense of " +
+    money(payload.amount) + "?"
+);
+
+connectForm(
+  "repayment-form",
+  "/repayments",
+  form => {
+    const values = formData(form);
+    return {
+      customer_id: values.customer_id,
+      reference: referenceFor(form),
+      amount: values.amount,
+      confirmed: true
+    };
+  },
+  payload => "Confirm repayment received of " +
+    money(payload.amount) + "?"
+);
 
 $("report-date").value = new Date().toISOString().slice(0, 10);
 $("refresh").addEventListener("click", refreshDashboard);
