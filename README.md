@@ -97,7 +97,7 @@ The tests create synthetic records in temporary SQLite databases. Node checks th
 
 ## Development limits
 
-Use the local server with synthetic data. The project still needs secure deployment configuration, account recovery and verification, operational monitoring, restore drills on the target host, and a PostgreSQL migration plan. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the audit and review gate. Run `python engine.py` for the standalone rule-based parsing demo.
+Use the local server with synthetic data. Before an external pilot, validate deployed TLS, approved email delivery, alert routing and restore on the target host. A PostgreSQL migration remains future work. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the audit and review gate. Run `python engine.py` for the standalone rule-based parsing demo.
 
 ## Synthetic pilot safety
 
@@ -108,3 +108,9 @@ KLD-006B5 adds atomic recovery, restricted operator decisions, and local backup 
 ```
 
 See the [architecture decision](docs/pilot-architecture.md) for the transaction design and the [pilot operations guide](docs/pilot-operations.md) for operator provisioning, the backup drill, HTTPS configuration, and the remaining readiness gaps.
+
+## Supervised staging and account lifecycle
+
+The default local setup uses existing trusted test registration. The supervised pilot uses the staging host invitation command and locally captured `.test` email. An invitation verifies inbox access before creating the account. Password reset is available from **Forgot password?** and signs out existing sessions when a reset completes.
+
+Use [staging architecture](docs/staging-architecture.md) for hosting costs, the Linux service configuration and approved TLS setup. See [supervised pilot acceptance and operations](docs/supervised-pilot.md) for synthetic email configuration, test commands, retention, monitoring, manual Android checks and the go/no-go checklist. Keep any real provider deployment and email delivery behind the review gate.

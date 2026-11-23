@@ -1,0 +1,27 @@
+{
+	admin off
+	skip_install_trust
+	http_port {$KUDILEDGER_HTTP_PORT:80}
+	default_bind {$KUDILEDGER_BIND:127.0.0.1}
+	log {
+		format filter {
+			wrap json
+			fields {
+				request delete
+			}
+		}
+	}
+}
+
+{$KUDILEDGER_SITE} {
+	request_body {
+		max_size 64KB
+	}
+	reverse_proxy {$KUDILEDGER_UPSTREAM:127.0.0.1:8000} {
+		header_up -Forwarded
+		header_up -X-Real-IP
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+}

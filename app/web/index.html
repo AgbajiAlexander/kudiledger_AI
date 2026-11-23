@@ -200,6 +200,27 @@ th:last-child, td:last-child { text-align: right; }
     </div>
     <div class="actions">
       <button id="login-button" type="submit">Sign in</button>
+      <button id="forgot-password" class="secondary" type="button">Forgot password?</button>
+    </div>
+  </form>
+  <form id="password-reset-request" hidden>
+    <label>Email
+      <input name="email" type="email" autocomplete="email" required maxlength="254">
+    </label>
+    <div class="actions">
+      <button type="submit">Send reset link</button>
+      <button class="secondary auth-back" type="button">Back to sign in</button>
+    </div>
+  </form>
+  <form id="account-link-form" hidden>
+    <label>New password
+      <input name="password" type="password" autocomplete="new-password"
+             required minlength="12" maxlength="1024" aria-describedby="new-password-hint">
+    </label>
+    <p id="new-password-hint" class="hint">Use at least 12 characters.</p>
+    <div class="actions">
+      <button type="submit">Set password</button>
+      <button class="secondary auth-back" type="button">Back to sign in</button>
     </div>
   </form>
 </section>
@@ -1040,7 +1061,7 @@ function clearSession() {
   $("business-name").hidden = true;
   $("customer-search").value = "";
   $("login-panel").hidden = false;
-  $("login-title").focus();
+  showAuth("login");
   for (const form of financialForms) {
     form.resetForm();
     form.updateButtons();
@@ -1142,6 +1163,82 @@ $("receipt-close").addEventListener("click", () => {
   hideReceipt();
   if (trigger) trigger.focus();
 });
+
+let accountLink = null;
+
+function showAuth(view) {
+  $("login-form").hidden = view !== "login";
+  $("password-reset-request").hidden = view !== "request";
+  $("account-link-form").hidden = view !== "link";
+  $("login-title").textContent = view === "request" ? "Reset your password" :
+    view === "link" ? (accountLink.purpose === "invite" ? "Set up your account" : "Choose a new password") :
+    "Sign in to KudiLedger";
+  if (view !== "link") {
+    accountLink = null;
+    $("account-link-form").reset();
+  }
+  $("login-title").focus();
+}
+
+$("forgot-password").addEventListener("click", () => {
+  message("");
+  showAuth("request");
+});
+for (const button of document.querySelectorAll(".auth-back")) {
+  button.addEventListener("click", () => {
+    message("");
+    showAuth("login");
+  });
+}
+
+$("password-reset-request").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await api("/api/v1/auth/password-reset", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(formData(form))
+    });
+    form.reset();
+    showAuth("login");
+    message(result.message);
+  } catch (error) {
+    message(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("account-link-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  if (!accountLink) return;
+  const link = accountLink;
+  const endpoint = link.purpose === "invite" ? "invite/complete" : "password-reset/complete";
+  button.disabled = true;
+  try {
+    const result = await api("/api/v1/auth/" + endpoint, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ token: link.token, password: formData(form).password })
+    });
+    showAuth("login");
+    message(result.message);
+  } catch (error) {
+    message(error.status === 400 ? "This link is invalid or expired. Request a new link." : error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+});
+
+const linkMatch = /^#(invite|reset)=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+if (linkMatch) {
+  accountLink = { purpose: linkMatch[1], token: linkMatch[2] };
+  history.replaceState(null, "", location.pathname + location.search);
+  showAuth("link");
+}
 
 $("login-form").addEventListener("submit", async event => {
   event.preventDefault();

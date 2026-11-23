@@ -1,0 +1,17 @@
+[Unit]
+Description=KudiLedger staging HTTPS and recovery threshold check
+
+[Service]
+Type=oneshot
+User=kudiledger
+Group=kudiledger
+WorkingDirectory=/opt/kudiledger/current
+EnvironmentFile=/etc/kudiledger/staging.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/kudiledger/venv/bin/python -m app.operations.staging monitor
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=

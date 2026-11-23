@@ -1,0 +1,10 @@
+[Unit]
+Description=KudiLedger staging monitoring every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=kudiledger-monitor.service
+
+[Install]
+WantedBy=timers.target
