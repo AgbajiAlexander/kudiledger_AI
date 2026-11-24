@@ -1,6 +1,6 @@
 # KLD-007A — Organization and branch SaaS architecture
 
-**Status: Proposed for independent technical review and product-owner approval.** Verified source baseline is merged main at `e9298f9d181c9961790ae2c979df3f03696ae49c` (PR #5, including Android recovery). This is a design milestone. Branches, staff permissions and subscription management described below are future capabilities. Real trader onboarding remains **NO-GO**.
+**Status: Product owner accepted the direction with the conditions recorded below.** Independent technical review remains open. Verified source baseline is merged main at `e9298f9d181c9961790ae2c979df3f03696ae49c` (PR #5, including Android recovery). Branches, staff permissions and subscription management described below are future capabilities. Real trader onboarding remains **NO-GO**.
 
 ## 1. Current architecture audit
 
@@ -84,10 +84,14 @@ Each implementation PR must pass the existing full release gate plus a synthetic
 
 After design approval, implement only the versioned additive SQLite migration and dry-run verification tooling for organizations, branches, organization memberships and assignments. Exercise fresh creation and a pre-SaaS backup that includes multiple owners/businesses where valid, customers, sales, repayments, expenses, adjustments, reversals, receipt references, saved and unresolved recovery, account links and operator audit. Fail safely on missing ownership or conflicting mappings. Inject a mid-migration failure and show rollback. Run migration twice, then backup/restore the migrated copy. Verify branch ID equals the original ledger business ID, one organization exists per legacy business, exact kobo/reference/receipt reconciliation passes and every ledger row and audit row remains unchanged. Include composite-FK negative tests for cross-organization and cross-branch assignments, existing API/receipt/account/recovery tests, a rollback rehearsal, and a protected review PR. Keep new authorization and subscription features disabled in this task.
 
-## 6. Decisions for product-owner approval
+## 6. Product-owner decision and outstanding issues
 
-- **Roles and duties.** Approve who may adjust, reverse, export or view consolidated reports, and the separate support grant policy. Decide whether branch managers need any staff delegation or cashier actions need finer limits.
-- **Plans and lifecycle.** Approve seat and branch definitions, owner inclusion, trials, grandfathering, grace periods, downgrade behavior, recovery after suspension, and retention/export after cancellation. No gateway or charged subscription is included.
-- **Branch ownership and identity.** Approve one legacy business per organization, immutable branch ownership, branch-local customers and debts, and branch-local reference uniqueness. Any future tenant merge or debt transfer needs an auditable business process and separate design.
-- **Platform and operations.** Approve separate admin MFA, time-limited support, audit access and retention, and restore authority. A shared SQLite database increases the blast radius of a bad query, backup or administrative action. Keep current hosting and onboarding gates. Use a measured concurrency and recovery threshold to decide when to validate a PostgreSQL migration separately.
+- **Identity and history.** Use a separate new organization ID for each legacy business and retain its business ID as the default branch ID. Preserve historical financial rows, references, receipts, recovery journals, timestamps and audit records. Keep customers and debts independent across branches. Cross-branch transfers and customer merging are outside scope.
+- **Permissions.** Deny by default on the server. Initially only organization owners can adjust debt or reverse sales. Branch managers and cashiers record ordinary transactions within assigned branches. Accountants have assigned-branch read, report and export access without financial-write authority. Support grants require separate approval and expire. Separate platform subscription administration requires MFA.
+- **Plans.** Count owners in seat limits. A downgrade preserves existing ledgers and blocks additions while limits are exceeded. Adopt a proposed seven-day grace period and preserve authorized historical reads, receipts, exports and safe recovery after expiry. Keep enforcement disabled until specifically approved and tested.
+- **Unresolved.** Final legal and audit retention schedule, plan sizes and pricing, grandfathering, trial terms, grace clock and notification rules, emergency suspension policy, support approvers and MFA recovery procedures, delegated manager duties, and restore authority await decision. Keep current hosting and onboarding gates. Set measured thresholds for any separate PostgreSQL cutover.
 - **Release risks.** Stale assignments or a legacy route can bypass a new policy if route coverage is incomplete. Treat cross-scope leakage, incorrect kobo, duplicate effects, broken recovery, or an unverified rollback as stop conditions. Require negative tests at the API/service boundary and independent review before feature activation.
+
+### Future payment-gateway milestone
+
+After KLD-007G, schedule a separate milestone for checkout, verified and replay-safe webhooks, explicit recurring-payment authorization, renewals, refunds, disputes and billing reconciliation. Require explicit provider and compliance approval. Billing events and reconciliation stay separate from branch financial ledgers.
