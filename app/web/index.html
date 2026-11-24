@@ -443,6 +443,7 @@ let recoveryRequest = 0;
 let recoveryLoaded = false;
 let recoveryLoading = false;
 const recoveryRecords = new Map();
+let recoveryAccount = null;
 const financialForms = [];
 const $ = id => document.getElementById(id);
 
@@ -730,6 +731,7 @@ const recoveryLabels = {
   sale: "Sale", repayment: "Customer repayment", expense: "Business expense"
 };
 const recoveryStatus = {
+  local: ["Save start not confirmed", "Check with KudiLedger before entering this record again. This check never sends a financial record."],
   prepared: ["Ready but unsent", "This save never started. Cancel it before recording the transaction again."],
   unresolved: ["Still uncertain", "Check for a saved record. If the status stays uncertain, keep this reference and contact support before recording it again."],
   conflict: ["Reference already used", "A different record uses this reference. Ask support to review it before recording it again."],
@@ -745,7 +747,60 @@ function recoveryPath(id = "") {
 
 function pendingFor(kind) {
   return [...recoveryRecords.values()].some(record =>
-    record.kind === kind && ["prepared", "unresolved", "conflict"].includes(record.status));
+    record.kind === kind && ["local", "prepared", "unresolved", "conflict"].includes(record.status));
+}
+
+function localRecoveryKey(kind) {
+  return "kudiledger:pending:" + JSON.stringify([businessId, recoveryAccount, kind]);
+}
+
+function readLocalRecovery(key, kind) {
+  const value = localStorage.getItem(key);
+  if (value === null) return null;
+  const record = JSON.parse(value);
+  if (!record || typeof record.reference !== "string" ||
+      !/^[0-9a-f-]{36}$/.test(record.id)) throw new Error("Recovery storage is unavailable.");
+  return { id: record.id, reference: record.reference, kind, status: "local" };
+}
+
+function forgetLocalRecovery(record) {
+  const key = localRecoveryKey(record.kind);
+  if (readLocalRecovery(key, record.kind)?.id === record.id) localStorage.removeItem(key);
+}
+
+function forgetReconciledRecovery(record, token) {
+  return navigator.locks.request(localRecoveryKey(record.kind), () => {
+    if (accessToken === token) forgetLocalRecovery(record);
+  });
+}
+
+async function checkLocalRecovery(record, button) {
+  const token = accessToken;
+  const key = localRecoveryKey(record.kind);
+  button.disabled = true;
+  try {
+    await navigator.locks.request(key, { ifAvailable: true }, async lock => {
+      if (token !== accessToken) return;
+      if (!lock) throw new Error("This record is still being checked in another tab.");
+      const records = await api(recoveryPath());
+      if (token !== accessToken) return;
+      if (records.some(item => item.id === record.id)) {
+        await loadRecovery();
+        if (token === accessToken) message("Review the corresponding record before entering it again.");
+        return;
+      }
+      // Under this lock, a remaining reminder has never handed off to financial submit.
+      if (!window.confirm("KudiLedger found no matching recovery record. Clear this reminder? This does not send a transaction.")) return;
+      forgetLocalRecovery(record);
+      await loadRecovery();
+      if (token === accessToken) message("Reminder cleared. No transaction was sent by this check.");
+    });
+  } catch (error) {
+    if (token === accessToken) message(error.status === 401 ? error.message :
+      "Could not clear the reminder. Check again when connected and no save is running.", "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function keepRecovery(record) {
@@ -812,6 +867,9 @@ function renderRecovery() {
     if (["unresolved", "conflict", "recent"].includes(record.status)) {
       actions.append(recoveryButton("Check saved transaction", button => checkRecovery(record, button)));
     }
+    if (record.status === "local") {
+      actions.append(recoveryButton("Check with KudiLedger", button => checkLocalRecovery(record, button)));
+    }
     if (record.status === "prepared") {
       actions.append(recoveryButton("Cancel unsent record", button => clearRecovery(record, "cancel", button)));
     } else if (["committed", "rejected"].includes(record.status)) {
@@ -834,6 +892,11 @@ async function loadRecovery() {
   recoveryLoading = true;
   renderRecovery();
   try {
+    if (!recoveryAccount || !navigator.locks || !crypto.randomUUID) throw new Error("Recovery storage is unavailable.");
+    const local = Object.keys(recoveryLabels).map(kind => readLocalRecovery(localRecoveryKey(kind), kind)).filter(Boolean);
+    for (const record of local) {
+      if (!recoveryRecords.has(record.id)) recoveryRecords.set(record.id, record);
+    }
     const records = await api(recoveryPath());
     if (token !== accessToken || request !== recoveryRequest) return;
     const fresh = records.map(record => {
@@ -842,6 +905,10 @@ async function loadRecovery() {
     });
     recoveryRecords.clear();
     for (const record of fresh) recoveryRecords.set(record.id, record);
+    for (const kind of Object.keys(recoveryLabels)) {
+      const record = readLocalRecovery(localRecoveryKey(kind), kind);
+      if (record && !recoveryRecords.has(record.id)) recoveryRecords.set(record.id, record);
+    }
     recoveryLoaded = true;
   } catch (_) {
     if (token === accessToken && request === recoveryRequest) recoveryLoaded = false;
@@ -859,6 +926,8 @@ async function checkRecovery(record, button) {
   message("Checking the saved record...");
   try {
     const result = await api(recoveryPath(record.id) + "/check", { method: "POST" });
+    if (token !== accessToken) return;
+    if (result.status === "committed") await forgetReconciledRecovery(record, token);
     if (token !== accessToken) return;
     keepRecovery(result);
     message(recoveryStatus[result.status][0] + ".");
@@ -879,6 +948,8 @@ async function clearRecovery(record, action, button) {
   button.disabled = true;
   try {
     await api(recoveryPath(record.id) + "?action=" + action, { method: "DELETE" });
+    if (token !== accessToken) return;
+    await forgetReconciledRecovery(record, token);
     if (token !== accessToken) return;
     recoveryRequest++;
     recoveryLoading = false;
@@ -983,12 +1054,24 @@ function connectForm(id, endpoint, makePayload, confirmation) {
           body: JSON.stringify(payload)
         });
       } else {
-        const attempt = await api(recoveryPath(), {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({ ...payload, kind })
+        const key = localRecoveryKey(kind);
+        const attempt = await navigator.locks.request(key, { ifAvailable: true }, async lock => {
+          if (token !== accessToken) return null;
+          if (!lock || readLocalRecovery(key, kind)) throw new Error("Check your earlier record first.");
+          const marker = { id: crypto.randomUUID(), reference: payload.reference };
+          localStorage.setItem(key, JSON.stringify(marker));
+          const draft = await api(recoveryPath() + "?attempt_id=" + marker.id, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ ...payload, kind })
+          });
+          if (token !== accessToken) return null;
+          if (draft.id !== marker.id) throw new Error("Check your earlier record first.");
+          // The durable server draft now owns recovery, including a future lost save reply.
+          forgetLocalRecovery({ ...marker, kind });
+          return draft;
         });
-        if (token !== accessToken) return;
+        if (!attempt || token !== accessToken) return;
         // Once prepared, any failure to confirm the submit is uncertain locally.
         keepRecovery({ ...attempt, status: "unresolved" });
         const result = await api(recoveryPath(attempt.id) + "/submit", { method: "POST" });
@@ -1047,6 +1130,7 @@ function referenceFor(form) {
 function clearSession() {
   accessToken = null;
   businessId = null;
+  recoveryAccount = null;
   recoveryRequest++;
   recoveryLoading = false;
   recoveryLoaded = false;
@@ -1274,6 +1358,7 @@ $("login-form").addEventListener("submit", async event => {
     }
 
     businessId = businesses[0].id;
+    recoveryAccount = businesses[0].account_id;
     $("business-name").textContent = businesses[0].name || "";
     $("business-name").hidden = !$("business-name").textContent;
     financialForms.forEach(form => form.updateButtons());

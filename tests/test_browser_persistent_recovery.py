@@ -24,8 +24,10 @@ class TestBrowserPersistentRecovery(unittest.TestCase):
             ledger = RecoveryLedger(database)
             email, password = "live@example.test", "SyntheticLiveRecovery123!"
             business = ledger.register_owner("Recovery Demo Market", email, password)["business_id"]
+            ledger.register_owner("Another Recovery Market", "other-live@example.test", password)
             token = ledger.login(email, password)
             customer = ledger.add_customer(token, business, "Amina Yusuf")
+            ledger.add_sale(token, business, customer, "OPENING-1", "95.01", "0", confirmed=True)
 
             with socket.socket() as listener:
                 listener.bind(("127.0.0.1", 0))
@@ -66,7 +68,7 @@ class TestBrowserPersistentRecovery(unittest.TestCase):
                         text=True,
                         encoding="utf-8",
                         errors="replace",
-                        timeout=45,
+                        timeout=60,
                         check=False,
                     )
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -79,8 +81,10 @@ class TestBrowserPersistentRecovery(unittest.TestCase):
 
             with ledger.connect() as db:
                 saved = db.execute(
-                    "SELECT sale_reference, total_kobo, paid_kobo FROM sales"
+                    "SELECT sale_reference, total_kobo, paid_kobo FROM sales ORDER BY rowid"
                 ).fetchall()
-                self.assertEqual([tuple(row) for row in saved], [("LIVE-LOSS-1", 10001, 2001)])
+                self.assertEqual([tuple(row) for row in saved], [
+                    ("OPENING-1", 9501, 0), ("LIVE-LOSS-1", 10001, 2001),
+                ])
                 stages = db.execute("SELECT stage FROM recovery_attempts").fetchall()
                 self.assertEqual([row["stage"] for row in stages], ["verified"])
