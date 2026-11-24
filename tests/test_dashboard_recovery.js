@@ -9,6 +9,10 @@
   let checkResult = () => { throw new Error("Unexpected recovery check"); };
   const journal = new Map();
   let nextAttempt = 0;
+  // The file/virtual-time fixture tests UI flows; the live HTTP fixture uses real Web Locks.
+  Object.defineProperty(navigator, "locks", {
+    value: { request: async (name, options, callback = options) => callback({ name }) }
+  });
   let fetchReceipt = () => { throw new Error("Unexpected receipt request"); };
   const report = {
     gross_sales: "250.01",
@@ -29,7 +33,7 @@
     }
     if (path.endsWith("/auth/businesses")) {
       const owner = options.headers.Authorization.includes("other@") ? "other" : "shop";
-      return response([{ id: owner }]);
+      return response([{ id: owner, account_id: owner + "-" + window.innerWidth }]);
     }
     if (path.endsWith("/auth/logout")) return response({});
     if (path.includes("/reports/daily")) return response(report);
@@ -47,7 +51,8 @@
         [...journal.values()].filter(row => row.business === business).map(row => row.summary)
       );
       if (!id && method === "POST") {
-        const summary = { id: String(++nextAttempt), kind: body.kind, reference: body.reference, status: "prepared" };
+        const requestedId = new URL(path, "https://example.test").searchParams.get("attempt_id");
+        const summary = { id: requestedId || String(++nextAttempt), kind: body.kind, reference: body.reference, status: "prepared" };
         journal.set(summary.id, { business, body, summary });
         return response(summary, 201);
       }

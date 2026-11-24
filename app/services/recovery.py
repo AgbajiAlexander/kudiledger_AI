@@ -80,13 +80,13 @@ class RecoveryLedger(ReportLedger):
             ).fetchall()
         return [self._summary(row) for row in rows]
 
-    def prepare_recovery(self, token, business_id, kind, payload):
+    def prepare_recovery(self, token, business_id, kind, payload, *, attempt_id=None):
         user_id = self._membership(token, business_id)["user_id"]
         reference = payload["reference"].strip()
         if not reference or payload["confirmed"] is not True:
             raise ValueError("A reference and confirmation are required")
         payload = {**payload, "reference": reference}
-        attempt_id = str(uuid4())
+        attempt_id = attempt_id or str(uuid4())
         with self.connect() as db:
             try:
                 db.execute(
@@ -96,7 +96,7 @@ class RecoveryLedger(ReportLedger):
                     (attempt_id, business_id, user_id, kind, reference, json.dumps(payload)),
                 )
             except sqlite3.IntegrityError as error:
-                if error.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+                if error.sqlite_errorcode in (sqlite3.SQLITE_CONSTRAINT_UNIQUE, sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY):
                     raise RecoveryConflict("Check your earlier record first") from None
                 raise
             return self._summary(self._get_attempt(db, attempt_id, business_id, user_id))

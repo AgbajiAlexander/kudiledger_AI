@@ -56,12 +56,14 @@ class TestCommissioningDemo(unittest.TestCase):
     def test_entry_point_starts_a_loopback_sandbox_and_cleans_it(self):
         with tempfile.TemporaryDirectory() as folder:
             result = subprocess.run(
-                [sys.executable, "-m", "scripts.commissioning_demo"], input="Q\n",
+                [sys.executable, "-m", "scripts.commissioning_demo"], input="E\nQ\n",
                 env={**os.environ, "TMPDIR": folder, "TEMP": folder, "TMP": folder},
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=30, check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Synthetic dashboard http://127.0.0.1:", result.stdout)
+            self.assertIn("commissioning-other@example.test", result.stdout)
+            self.assertIn("Synthetic sessions expired.", result.stdout)
             self.assertNotIn("#invite=", result.stdout + result.stderr)
             self.assertEqual(list(Path(folder).iterdir()), [])

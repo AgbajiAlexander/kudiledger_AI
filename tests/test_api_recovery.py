@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -53,6 +54,22 @@ class TestRecoveryAPI(unittest.TestCase):
         self.assertEqual(self.ledger.daily_summary(
             self.token, self.business, "2024-01-01",
         )["current_outstanding_debt"], "0")
+
+    def test_browser_attempt_id_correlates_missing_and_prepared_without_writes(self):
+        marker = str(uuid4())
+        attempt = "/" + marker
+        self.assertEqual(self.request("GET").json(), [])
+        self.assertEqual(self.request("POST", attempt + "/submit").status_code, 404)
+        prepared = self.request("POST", params={"attempt_id": marker}, json=self.payload)
+        self.assertEqual(prepared.status_code, 201)
+        self.assertEqual(prepared.json()["id"], marker)
+        self.assertEqual(self.request("GET").json()[0]["status"], "prepared")
+        self.assertEqual(self.request("POST", params={"attempt_id": marker},
+                                      json={**self.payload, "reference": "NEW"}).status_code, 409)
+        self.assertEqual(self.request("DELETE", attempt + "?action=cancel").status_code, 200)
+        self.assertEqual(self.request("POST", attempt + "/submit").status_code, 404)
+        with self.ledger.connect() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM sales").fetchone()[0], 0)
 
     def test_competing_prepares_writes_and_checks(self):
         with ThreadPoolExecutor(max_workers=2) as pool:

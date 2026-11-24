@@ -275,7 +275,7 @@ class AccountLedger(RepaymentLedger):
 
         with self.connect() as db:
             rows = db.execute(
-                """SELECT b.id, b.name, m.role
+                """SELECT b.id, b.name, m.role, m.user_id
                    FROM sessions s
                    JOIN memberships m ON m.user_id = s.user_id
                    JOIN businesses b ON b.id = m.business_id
@@ -290,6 +290,7 @@ class AccountLedger(RepaymentLedger):
                 "id": row["id"],
                 "name": row["name"],
                 "role": row["role"],
+                "account_id": row["user_id"],
             }
             for row in rows
         ]

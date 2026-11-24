@@ -6,7 +6,7 @@ import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -720,11 +720,13 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
     @app.post(recovery_path, status_code=201)
     def prepare_recovery(
         business_id: str, payload: RecoveryPayload, response: Response,
+        attempt_id: UUID | None = None,
         token: str = Depends(require_token),
     ):
         response.headers["Cache-Control"] = "no-store"
         return run_protected(lambda: ledger.prepare_recovery(
             token, business_id, payload.kind, payload.model_dump(exclude={"kind"}),
+            attempt_id=str(attempt_id) if attempt_id else None,
         ))
 
     @app.post(recovery_path + "/{attempt_id}/submit")

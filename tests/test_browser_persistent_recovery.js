@@ -18,6 +18,7 @@ async function run() {
   let interrupted = 0;
   let failure;
   let writes = 0;
+  let expectedResponse = 200;
   socket.addEventListener("message", event => {
     const info = JSON.parse(event.data);
     if (info.id) {
@@ -27,7 +28,7 @@ async function run() {
       if (info.error) reply.reject(new Error(info.error.message));
       else reply.resolve(info.result);
     } else if (info.method === "Fetch.requestPaused") {
-      if (info.params.responseStatusCode !== 200) {
+      if (info.params.responseStatusCode !== expectedResponse) {
         failure = new Error("Financial save did not return a successful response.");
       }
       interrupted++;
@@ -63,9 +64,9 @@ async function run() {
     throw new Error("Browser did not reach expected state: " + expression);
   }
 
-  async function signIn() {
+  async function signIn(email = "live@example.test") {
     await until('document.readyState === "complete" && !!document.getElementById("login-form")');
-    await evaluate('document.getElementById("email").value = "live@example.test";' +
+    await evaluate('document.getElementById("email").value = ' + JSON.stringify(email) + ';' +
       'document.getElementById("password").value = "SyntheticLiveRecovery123!";' +
       'document.getElementById("login-form").requestSubmit()');
     await until('!document.getElementById("dashboard").hidden && recoveryLoaded');
@@ -74,6 +75,25 @@ async function run() {
   function go(screen) {
     return evaluate('document.querySelector(".nav [data-open=' + screen + ']").click()');
   }
+
+  function submitSale(reference) {
+    return evaluate('window.confirm = () => true;' +
+      '(() => { const sale = document.getElementById("sale-form");' +
+      'sale.elements.customer_id.value = ' + JSON.stringify(customer) + ';' +
+      'sale.elements.reference.value = ' + JSON.stringify(reference) + ';' +
+      'sale.elements.total.value = "100.01"; sale.elements.paid.value = "20.01";' +
+      'sale.requestSubmit(); sale.requestSubmit(); })()');
+  }
+
+  async function reloadAndSignIn() {
+    await cdp("Page.reload", { ignoreCache: true });
+    await until('document.readyState === "complete" && document.getElementById("dashboard")?.hidden');
+    await signIn();
+  }
+
+  const network = { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 };
+  const online = { ...network, offline: false, downloadThroughput: -1, uploadThroughput: -1 };
+  const recoveryText = 'document.getElementById("recovery-list").textContent';
 
   function screenshot(name) {
     if (!screenshotDirectory) return;
@@ -94,30 +114,87 @@ async function run() {
     await until('document.getElementById("sale-customer").options.length === 2');
     await go("sales");
 
+    // ADB-like disconnect before the initial prepare: no journal row or ledger write.
+    await cdp("Network.emulateNetworkConditions", network);
+    await submitSale("NETWORK-TEST-1");
+    await until(recoveryText + '.includes("NETWORK-TEST-1")');
+    assert.equal(writes, 0);
+    assert.equal(await evaluate('localStorage.length'), 1);
+    assert.equal(await evaluate('Object.keys(JSON.parse(localStorage.getItem(localStorage.key(0)))).sort().join(",")'),
+      "id,reference");
+    await cdp("Network.emulateNetworkConditions", online);
+    await reloadAndSignIn();
+    await go("sales");
+    assert.equal(await evaluate('document.querySelector("#sale-form button[type=submit]").disabled'), true);
+    await go("recovery");
+    await until(recoveryText + '.includes("NETWORK-TEST-1")');
+    const server = await cdp("Runtime.evaluate", {
+      expression: 'api(recoveryPath())', awaitPromise: true, returnByValue: true
+    });
+    assert.deepEqual(server.result.value, []);
+    const debt = await cdp("Runtime.evaluate", {
+      expression: 'api("/api/v1/businesses/" + businessId + "/reports/daily?report_date=2026-11-24")',
+      awaitPromise: true, returnByValue: true
+    });
+    assert.equal(debt.result.value.current_outstanding_debt, "95.01");
+    await evaluate('document.getElementById("logout").click()');
+    await until('document.getElementById("dashboard").hidden');
+    await signIn("other-live@example.test");
+    await go("recovery");
+    assert.equal(await evaluate(recoveryText + '.includes("NETWORK-TEST-1")'), false);
+    assert.equal(await evaluate('localStorage.length'), 1);
+    await evaluate('document.getElementById("logout").click()');
+    await until('document.getElementById("dashboard").hidden');
+    await signIn();
+    await go("recovery");
+    await until(recoveryText + '.includes("NETWORK-TEST-1")');
+    await evaluate('navigator.locks.request(localRecoveryKey("sale"), () => ' +
+      'new Promise(resolve => window.releaseTestLock = resolve)); void 0');
+    await until('typeof window.releaseTestLock === "function"');
+    await evaluate('document.querySelector("#recovery-list button").click()');
+    await until('document.getElementById("message").textContent.includes("no save is running")');
+    assert.equal(await evaluate('localStorage.length'), 1);
+    await evaluate('window.releaseTestLock()');
+    await evaluate('window.confirm = () => true; document.querySelector("#recovery-list button").click()');
+    await until('localStorage.length === 0 && !' + recoveryText + '.includes("NETWORK-TEST-1")');
+    assert.equal(writes, 0);
+
+    // If only the prepare reply is lost, the exact server draft takes precedence.
+    await go("sales");
+    expectedResponse = 201;
+    await cdp("Fetch.enable", {
+      patterns: [{ urlPattern: "*/recovery?attempt_id=*", requestStage: "Response" }]
+    });
+    await submitSale("PREPARE-LOSS-1");
+    await until(recoveryText + '.includes("Ready but unsent")');
+    assert.equal(interrupted, 1);
+    assert.equal(writes, 0);
+    await cdp("Fetch.disable");
+    await reloadAndSignIn();
+    await go("recovery");
+    await until(recoveryText + '.includes("PREPARE-LOSS-1")');
+    await evaluate('document.querySelector("#recovery-list button").click()');
+    await until('localStorage.length === 0 && !' + recoveryText + '.includes("PREPARE-LOSS-1")');
+    assert.equal(writes, 0);
+
     // The API completes the financial POST before Chrome discards its response.
+    await go("sales");
+    expectedResponse = 200;
     await cdp("Fetch.enable", {
       patterns: [{ urlPattern: "*/recovery/*/submit", requestStage: "Response" }]
     });
-    await evaluate('window.confirm = () => true;' +
-      'const testSale = document.getElementById("sale-form");' +
-      'testSale.elements.customer_id.value = ' + JSON.stringify(customer) + ';' +
-      'testSale.elements.reference.value = "LIVE-LOSS-1";' +
-      'testSale.elements.total.value = "100.01"; testSale.elements.paid.value = "20.01";' +
-      'testSale.requestSubmit(); testSale.requestSubmit()');
+    await submitSale("LIVE-LOSS-1");
     await until('!document.querySelector("[data-screen=recovery]").hidden && ' +
       'document.getElementById("recovery-list").textContent.includes("LIVE-LOSS-1")');
-    assert.equal(interrupted, 1);
+    assert.equal(interrupted, 2);
     assert.equal(writes, 1);
     await cdp("Fetch.disable");
 
-    const network = { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 };
     await cdp("Network.emulateNetworkConditions", network);
     await evaluate('document.querySelector("#recovery-list button").click()');
     await until('document.getElementById("message").textContent.includes("Try again when connected")');
     assert.equal(writes, 1);
-    await cdp("Network.emulateNetworkConditions", {
-      ...network, offline: false, downloadThroughput: -1, uploadThroughput: -1
-    });
+    await cdp("Network.emulateNetworkConditions", online);
 
     await cdp("Page.reload", { ignoreCache: true });
     await until('document.readyState === "complete" && document.getElementById("dashboard")?.hidden');
