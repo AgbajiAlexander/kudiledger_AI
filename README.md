@@ -4,6 +4,8 @@ KudiLedger is a local financial ledger for Nigerian small businesses. The dashbo
 
 For pilot review, see the [interactive synthetic demo and physical-device checklist](docs/commissioning-acceptance.md), [release manifest](docs/commissioning-manifest.md) and [commissioning plan](docs/commissioning-plan.md).
 
+For physical testing and host approval, use the [Windows USB Android walkthrough](docs/android-device-validation.md), [infrastructure preflight](docs/infrastructure-preflight.md) and [validation report](docs/device-infrastructure-validation-report.md).
+
 ## Run locally on Windows
 
 Run these commands in PowerShell from the repository directory. The project is verified with Python 3.13. Use Node.js on PATH for the dashboard syntax tests and a Chromium browser for the interaction test.

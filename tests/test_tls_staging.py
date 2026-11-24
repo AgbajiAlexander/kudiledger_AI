@@ -19,6 +19,7 @@ import uvicorn
 from app.api.main import create_app
 from app.operations.staging import invite, monitor
 from app.services.account_mail import AccountMail
+from scripts.staging_preflight import check_edge
 from tests.test_dashboard_recovery import find_chromium
 
 
@@ -115,6 +116,7 @@ class TestTLSStaging(unittest.TestCase):
             self.assertEqual(headers["x-frame-options"], "DENY")
             self.assertIn("script-src 'sha256-", headers["content-security-policy"])
             self.assertEqual(headers["cache-control"], "no-store")
+            check_edge(origin, http_port=http_port, context=context)
             self.assertEqual(monitor(database, origin, str(ca))["alerts"], [])
 
             clear = http.client.HTTPConnection("127.0.0.1", backend_port, timeout=3)

@@ -21,6 +21,7 @@ from app.services.telemetry import StagingLedger
 
 
 EMAIL = "commissioning@example.test"
+SECOND_EMAIL = "commissioning-other@example.test"
 
 
 def simulate_interruption(app, armed):
@@ -101,19 +102,21 @@ def main():
         mail = AccountMail(mode="capture", origin=origin, directory=mailbox)
         ledger = StagingLedger(database)
         invite(database, EMAIL, "Commissioning Synthetic Market", mail)
+        invite(database, SECOND_EMAIL, "Commissioning Other Market", mail)
         armed = threading.Event()
         application = create_app(database, require_https=False, account_mail=mail)
         simulate_interruption(application, armed)
         serve(stack, listener, application)
         print("Synthetic dashboard " + origin + "/app")
         print("Open the private captured invitation JSON in " + str(mailbox))
-        print("Use " + EMAIL + " and a synthetic password. Closing the demo deletes the sandbox.")
+        print("Use " + EMAIL + " and " + SECOND_EMAIL + " with synthetic passwords.")
+        print("Closing the demo deletes the sandbox.")
         audit_id = None
         backup = None
         restored = False
         while True:
             try:
-                action = input("\n[L] Lose next save reply  [M] List captures  [O] Resolve conflict  "
+                action = input("\n[L] Lose next save reply  [E] Expire demo sessions  [M] List captures  [O] Resolve conflict  "
                                "[B] Backup  [R] Restore in isolation  [Q] Quit: ").strip().upper()
             except EOFError:
                 return
@@ -123,6 +126,10 @@ def main():
                 if action == "L":
                     armed.set()
                     print("The next successful financial save will commit and receive a synthetic interruption.")
+                elif action == "E":
+                    with ledger.connect() as db:
+                        db.execute("UPDATE sessions SET expires_at = 0")
+                    print("Synthetic sessions expired. Check a protected action and sign in again.")
                 elif action == "M":
                     for file in sorted(mailbox.glob("*.json"), key=lambda entry: entry.stat().st_mtime):
                         print(file.name)

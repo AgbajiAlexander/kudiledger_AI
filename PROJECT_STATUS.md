@@ -11,7 +11,8 @@
 - KLD-006B5 pilot safety merged into `main` at `48860c1`.
 - KLD-006C0 deployment readiness merged into `main` at `c1aa57c`.
 - KLD-006C1 release candidate merged into `main` at `c3344c6`. The merged release gate passed.
-- KLD-006C2 is prepared on `feature/KLD-006C2-pilot-commissioning` for independent review and owner acceptance. [Verification and manifest](docs/commissioning-manifest.md) · [Synthetic acceptance](docs/commissioning-acceptance.md) · [Pilot decision](docs/commissioning-plan.md)
+- KLD-006C2 merged into `main` at `a158a44` and its release workflow passed. [Verification and manifest](docs/commissioning-manifest.md) · [Synthetic acceptance](docs/commissioning-acceptance.md) · [Pilot decision](docs/commissioning-plan.md)
+- KLD-006C3 prepares USB-only physical Android testing and host preflight. Physical and approved-host checks remain open. [Validation report](docs/device-infrastructure-validation-report.md)
 
 ## KLD-006C1 release validation
 
