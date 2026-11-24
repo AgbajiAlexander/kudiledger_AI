@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import create_app
 from app.db.migrations import migrate_legacy_database
+from app.operations.migration_reconciliation import reconcile
 from app.operations.pilot import backup_database, restore_database
 from app.services.telemetry import StagingLedger
 
@@ -138,6 +140,49 @@ class TestLegacyMigration(unittest.TestCase):
                 migrate_legacy_database(self.source)
         self.assertEqual(self.snapshot(self.source), baseline)
         self.assertEqual(migrate_legacy_database(self.source)["new_mappings"], 2)
+
+    def test_ownership_drift_refuses_to_change_existing_mappings_or_history(self):
+        migrate_legacy_database(self.source)
+        with self.db.connect() as db:
+            db.execute("INSERT INTO memberships VALUES (?, ?, 'OWNER')",
+                       (self.other["user_id"], self.business))
+            db.execute("DELETE FROM memberships WHERE user_id = ? AND business_id = ?",
+                       (self.owner["user_id"], self.other_business))
+        self.db.register_owner("New Legacy Market", "three@example.test", self.password)
+        drifted = self.snapshot(self.source)
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run), self.assertRaisesRegex(ValueError, "do not match legacy ownership"):
+                migrate_legacy_database(self.source, dry_run=dry_run)
+            self.assertEqual(self.snapshot(self.source), drifted)
+
+    def test_reconciliation_is_read_only_redacted_and_detects_changed_rows(self):
+        before = self.root / "before.sqlite"
+        after = self.root / "after.sqlite"
+        backup_database(self.source, before)
+        migrate_legacy_database(self.source)
+        backup_database(self.source, after)
+        original_files = (before.read_bytes(), after.read_bytes(), set(self.root.iterdir()))
+        report = reconcile(before, after)
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["schema_versions"], [1])
+        self.assertEqual(report["after"]["mapped_branches"], 2)
+        self.assertEqual(report["before"]["financial"]["sales"]["totals_kobo"]["total_kobo"], 20703)
+        self.assertEqual(report["before"]["financial"]["sales"]["scoped_references"], 3)
+        self.assertEqual(report["after"]["recovery"]["records"], 3)
+        redacted = json.dumps(report)
+        for value in (self.token, self.password, self.business, self.receipt_id, "one@example.test",
+                      "SYNTH-SALE-1", "Synthetic delivery", "SYNTH-MIGRATION-1"):
+            self.assertNotIn(value, redacted)
+        self.assertEqual((before.read_bytes(), after.read_bytes(), set(self.root.iterdir())), original_files)
+        # An inconspicuous description change leaves the financial aggregates identical.
+        with self.db.connect() as db:
+            db.execute("UPDATE customers SET name = 'Changed customer name' WHERE id = ?", (self.customer,))
+        changed = self.root / "changed.sqlite"
+        backup_database(self.source, changed)
+        report = reconcile(before, changed)
+        self.assertTrue(report["invariants"]["legacy_aggregates_unchanged"])
+        self.assertFalse(report["invariants"]["legacy_rows_unchanged"])
+        self.assertFalse(report["passed"])
 
     def test_ownerless_legacy_business_blocks_migration(self):
         with self.db.connect() as db:
