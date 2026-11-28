@@ -3,7 +3,7 @@ import logging
 import sqlite3
 import time
 
-from app.services.identity import IdentityLedger
+from app.services.staff_invitations import StaffInvitationLedger
 
 
 LOGGER = logging.getLogger("kudiledger.operations")
@@ -19,7 +19,7 @@ def event(name, **fields):
     LOGGER.info(json.dumps({"event": name, **fields}, separators=(",", ":")))
 
 
-class StagingLedger(IdentityLedger):
+class StagingLedger(StaffInvitationLedger):
     def initialize(self):
         super().initialize()
         with self.connect() as db:

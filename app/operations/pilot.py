@@ -7,6 +7,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import time
 from contextlib import closing
 from pathlib import Path
 
@@ -103,6 +104,16 @@ def restore_database(backup, destination, expected_sha256):
             db.execute("DELETE FROM sessions")
             if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'account_links'").fetchone():
                 db.execute("DELETE FROM account_links")
+            if db.execute("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'staff_invitations'").fetchone():
+                now = int(time.time())
+                revoked = db.execute(
+                    """UPDATE staff_invitations SET revoked_at = ?
+                       WHERE accepted_at IS NULL AND revoked_at IS NULL RETURNING id""", (now,),
+                ).fetchall()
+                db.executemany(
+                    """INSERT INTO staff_invitation_audit(invitation_id, event, created_at)
+                       VALUES (?, 'restore_revoked', ?)""", ((row[0], now) for row in revoked),
+                )
 
     return _publish(target, restore_copy)
 

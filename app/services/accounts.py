@@ -72,15 +72,7 @@ class AccountLedger(RepaymentLedger):
             raise ValueError("Valid email required")
         return email
 
-    def register_owner(self, business_name, email, password, *, _db=None):
-        if not isinstance(business_name, str) or not business_name.strip():
-            raise ValueError("Business name required")
-
-        if not isinstance(email, str):
-            raise ValueError("Valid email required")
-
-        email = self.normalize_email(email)
-
+    def _create_user(self, db, email, password):
         if (
             not isinstance(password, str)
             or len(password) < 12
@@ -92,8 +84,21 @@ class AccountLedger(RepaymentLedger):
 
         salt = secrets.token_bytes(16)
         encoded = self._hash_password(password, salt)
-
         user_id = str(uuid4())
+        db.execute(
+            "INSERT INTO users (id, email, password_hash, password_salt) VALUES (?, ?, ?, ?)",
+            (user_id, email, encoded, salt.hex()),
+        )
+        return user_id
+
+    def register_owner(self, business_name, email, password, *, _db=None):
+        if not isinstance(business_name, str) or not business_name.strip():
+            raise ValueError("Business name required")
+
+        if not isinstance(email, str):
+            raise ValueError("Valid email required")
+
+        email = self.normalize_email(email)
         business_id = str(uuid4())
 
         with self._using_connection(_db) as db:
@@ -103,12 +108,7 @@ class AccountLedger(RepaymentLedger):
                     (business_id, business_name.strip()),
                 )
 
-                db.execute(
-                    """INSERT INTO users
-                       (id, email, password_hash, password_salt)
-                       VALUES (?, ?, ?, ?)""",
-                    (user_id, email, encoded, salt.hex()),
-                )
+                user_id = self._create_user(db, email, password)
 
                 db.execute(
                     """INSERT INTO memberships

@@ -38,6 +38,21 @@ class AccountLinkRequest(BaseModel):
     password: str = Field(min_length=12, max_length=1024)
 
 
+class StaffBranchGrant(BaseModel):
+    branch_id: str = Field(min_length=1, max_length=100)
+    role: Literal["MANAGER", "CASHIER", "ACCOUNTANT"]
+
+
+class StaffInvitationRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    branches: list[StaffBranchGrant] = Field(min_length=1, max_length=50)
+
+
+class StaffInvitationAcceptance(BaseModel):
+    token: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+    password: str | None = Field(default=None, min_length=12, max_length=1024)
+
+
 class CustomerRequest(BaseModel):
     name: str = Field(min_length=1, max_length=150)
 
@@ -323,6 +338,51 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
         limit_client(request, "invite-complete", 12)
         run_protected(lambda: ledger.consume_account_link("invite", payload.token, payload.password))
         return {"message": "Email verified. Sign in to KudiLedger."}
+
+    def require_staff_capture():
+        if mail.mode != "capture":
+            raise HTTPException(status_code=403, detail="Staff invitation capture is unavailable")
+
+    @app.post("/api/v1/organizations/{organization_id}/staff-invitations", status_code=201)
+    def issue_staff_invitation(
+        organization_id: str, payload: StaffInvitationRequest, request: Request,
+        token: str = Depends(require_token),
+    ):
+        require_staff_capture()
+        limit_client(request, "staff-invitation-issue", 30)
+        email = run_protected(lambda: ledger.normalize_email(payload.email))
+        invitation_id, secret = run_protected(lambda: ledger.issue_staff_invitation(
+            token, organization_id, email, [(item.branch_id, item.role) for item in payload.branches],
+        ))
+        try:
+            mail.send("staff-invite", email, secret)
+        except (OSError, ValueError):
+            ledger.fail_staff_invitation_delivery(organization_id, invitation_id)
+            raise HTTPException(status_code=503, detail="Could not capture the invitation") from None
+        return {"id": invitation_id}
+
+    @app.post("/api/v1/auth/staff-invitations/accept")
+    def accept_staff_invitation(
+        payload: StaffInvitationAcceptance, request: Request,
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    ):
+        require_staff_capture()
+        limit_client(request, "staff-invitation-accept", 20)
+        if credentials is None and "authorization" in request.headers:
+            raise HTTPException(status_code=401, detail="Invalid authentication")
+        run_protected(lambda: ledger.accept_staff_invitation(
+            payload.token, token=credentials.credentials if credentials else None, password=payload.password,
+        ))
+        return {"status": "accepted"}
+
+    @app.delete("/api/v1/organizations/{organization_id}/staff-invitations/{invitation_id}", status_code=204)
+    def revoke_staff_invitation(
+        organization_id: str, invitation_id: str, request: Request, token: str = Depends(require_token),
+    ):
+        require_staff_capture()
+        limit_client(request, "staff-invitation-revoke", 30)
+        run_protected(lambda: ledger.revoke_staff_invitation(token, organization_id, invitation_id))
+        return Response(status_code=204)
 
     @app.post("/api/v1/auth/logout")
     def logout(token: str = Depends(require_token)):
