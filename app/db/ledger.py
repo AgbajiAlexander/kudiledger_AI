@@ -142,13 +142,13 @@ class Ledger:
 
         return business_id
 
-    def create_customer(self, business_id, name):
+    def create_customer(self, business_id, name, *, _db=None):
         if not isinstance(name, str) or not name.strip():
             raise ValueError("Customer name is required")
 
         customer_id = str(uuid4())
 
-        with self.connect() as db:
+        with self._using_connection(_db) as db:
             if not db.execute(
                 "SELECT id FROM businesses WHERE id = ?",
                 (business_id,),

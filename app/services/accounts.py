@@ -6,10 +6,16 @@ import time
 from uuid import uuid4
 
 from app.db.repayments import RepaymentLedger
+from app.services.authorization import (
+    LegacyScope, active_user, legacy_owner, organization_owner, owned_organizations,
+)
 
 
 class AccountLedger(RepaymentLedger):
     """Local identity and business-scoped ledger operations."""
+
+    # Future rollout must explicitly opt out of unmapped legacy fallback.
+    legacy_scope = LegacyScope.COMPATIBILITY
 
     def initialize(self):
         super().initialize()
@@ -162,30 +168,10 @@ class AccountLedger(RepaymentLedger):
         return self._membership(token, business_id, _db=_db)["role"]
 
     def _membership(self, token, business_id, *, _db=None):
-        if not isinstance(token, str) or not token:
-            raise PermissionError("Authentication required")
-
-        token_hash = hashlib.sha256(
-            token.encode("utf-8")
-        ).hexdigest()
-
         with self._using_connection(_db) as db:
-            row = db.execute(
-                """SELECT m.role, m.user_id FROM sessions s
-                   JOIN memberships m
-                     ON m.user_id = s.user_id
-                   WHERE s.token_hash = ?
-                     AND s.expires_at > ?
-                     AND m.business_id = ?""",
-                (token_hash, int(time.time()), business_id),
-            ).fetchone()
-
-        if row is None:
-            raise PermissionError(
-                "Access denied for this business"
-            )
-
-        return row
+            if _db is None:
+                db.execute("BEGIN")
+            return legacy_owner(db, active_user(db, token), business_id, scope=self.legacy_scope)
 
     def is_active_session(self, token):
         """Check that a login token exists and has not expired."""
@@ -225,30 +211,29 @@ class AccountLedger(RepaymentLedger):
             )
 
     def add_customer(self, token, business_id, name):
-        self._authorize(token, business_id)
-        return super().create_customer(business_id, name)
+        with self._using_connection(immediate=True) as db:
+            self._authorize(token, business_id, _db=db)
+            return super().create_customer(business_id, name, _db=db)
 
     def add_sale(
         self, token, business_id, customer_id,
         reference, total, paid, confirmed=False, *, _db=None
     ):
-        self._authorize(token, business_id, _db=_db)
-
-        return super().record_sale(
-            business_id, customer_id, reference,
-            total, paid, confirmed=confirmed, _db=_db
-        )
+        with self._using_connection(_db, immediate=True) as db:
+            self._authorize(token, business_id, _db=db)
+            return super().record_sale(
+                business_id, customer_id, reference, total, paid, confirmed=confirmed, _db=db
+            )
 
     def add_repayment(
         self, token, business_id, customer_id,
         reference, amount, confirmed=False, *, _db=None
     ):
-        self._authorize(token, business_id, _db=_db)
-
-        return super().record_repayment(
-            business_id, customer_id, reference,
-            amount, confirmed=confirmed, _db=_db
-        )
+        with self._using_connection(_db, immediate=True) as db:
+            self._authorize(token, business_id, _db=db)
+            return super().record_repayment(
+                business_id, customer_id, reference, amount, confirmed=confirmed, _db=db
+            )
 
     def get_balance(self, token, business_id, customer_id):
         self._authorize(token, business_id)
@@ -266,32 +251,39 @@ class AccountLedger(RepaymentLedger):
 
     def list_my_businesses(self, token):
         """Return businesses belonging to an active session."""
-        if not self.is_active_session(token):
-            raise PermissionError("Authentication required")
-
-        token_hash = hashlib.sha256(
-            token.encode("utf-8")
-        ).hexdigest()
-
         with self.connect() as db:
+            db.execute("BEGIN")
+            user_id = active_user(db, token)
             rows = db.execute(
                 """SELECT b.id, b.name, m.role, m.user_id
-                   FROM sessions s
-                   JOIN memberships m ON m.user_id = s.user_id
+                   FROM memberships m
                    JOIN businesses b ON b.id = m.business_id
-                   WHERE s.token_hash = ?
-                     AND s.expires_at > ?
+                   WHERE m.user_id = ? AND m.role = 'OWNER'
                    ORDER BY b.name COLLATE NOCASE, b.id""",
-                (token_hash, int(time.time())),
+                (user_id,),
             ).fetchall()
+            businesses = []
+            for row in rows:
+                try:
+                    legacy_owner(db, user_id, row["id"], scope=self.legacy_scope)
+                except PermissionError:
+                    continue
+                businesses.append({"id": row["id"], "name": row["name"],
+                                   "role": row["role"], "account_id": row["user_id"]})
+            return businesses
 
-        return [
-            {
-                "id": row["id"],
-                "name": row["name"],
-                "role": row["role"],
-                "account_id": row["user_id"],
-            }
-            for row in rows
-        ]
+    def list_my_organizations(self, token):
+        with self.connect() as db:
+            db.execute("BEGIN")
+            return [dict(row) for row in owned_organizations(db, active_user(db, token))]
+
+    def list_organization_branches(self, token, organization_id):
+        with self.connect() as db:
+            db.execute("BEGIN")
+            organization_owner(db, active_user(db, token), organization_id)
+            return [dict(row) for row in db.execute(
+                """SELECT b.id, ledger.name, b.is_default FROM branches b JOIN businesses ledger
+                   ON ledger.id = b.id WHERE b.organization_id = ?
+                   ORDER BY b.is_default DESC, ledger.name, b.id""", (organization_id,),
+            )]
 

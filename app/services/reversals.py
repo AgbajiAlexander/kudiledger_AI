@@ -104,6 +104,7 @@ class ReversalLedger(AdjustmentLedger):
 
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            self._authorize(token, business_id, _db=db)
 
             sale = db.execute(
                 """SELECT id, customer_id, total_kobo, paid_kobo

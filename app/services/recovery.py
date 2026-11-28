@@ -70,8 +70,9 @@ class RecoveryLedger(ReportLedger):
         return row
 
     def list_recovery(self, token, business_id):
-        user_id = self._membership(token, business_id)["user_id"]
         with self.connect() as db:
+            db.execute("BEGIN")
+            user_id = self._membership(token, business_id, _db=db)["user_id"]
             rows = db.execute(
                 """SELECT id, kind, reference, stage, created_at
                    FROM recovery_attempts WHERE business_id = ? AND user_id = ?
@@ -81,13 +82,14 @@ class RecoveryLedger(ReportLedger):
         return [self._summary(row) for row in rows]
 
     def prepare_recovery(self, token, business_id, kind, payload, *, attempt_id=None):
-        user_id = self._membership(token, business_id)["user_id"]
+        self._membership(token, business_id)
         reference = payload["reference"].strip()
         if not reference or payload["confirmed"] is not True:
             raise ValueError("A reference and confirmation are required")
         payload = {**payload, "reference": reference}
         attempt_id = attempt_id or str(uuid4())
-        with self.connect() as db:
+        with self._using_connection(immediate=True) as db:
+            user_id = self._membership(token, business_id, _db=db)["user_id"]
             try:
                 db.execute(
                     """INSERT INTO recovery_attempts
@@ -187,19 +189,17 @@ class RecoveryLedger(ReportLedger):
         return self._summary(row, stage, transaction_id)
 
     def clear_recovery(self, token, business_id, attempt_id, *, cancel=False):
-        user_id = self._membership(token, business_id)["user_id"]
         allowed = ("prepared",) if cancel else ("verified", "rejected")
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        with self._using_connection(immediate=True) as db:
+            user_id = self._membership(token, business_id, _db=db)["user_id"]
             row = self._get_attempt(db, attempt_id, business_id, user_id)
             if row["stage"] not in allowed:
                 raise RecoveryConflict("This record cannot be removed in its current state")
             db.execute("DELETE FROM recovery_attempts WHERE id = ?", (attempt_id,))
 
     def acknowledge_recovery(self, token, business_id, attempt_id, transaction_id):
-        user_id = self._membership(token, business_id)["user_id"]
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+        with self._using_connection(immediate=True) as db:
+            user_id = self._membership(token, business_id, _db=db)["user_id"]
             row = self._get_attempt(db, attempt_id, business_id, user_id)
             if row["stage"] not in ("saved", "verified"):
                 raise RecoveryConflict("Check the saved record before acknowledging it")
