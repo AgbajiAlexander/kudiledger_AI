@@ -4,7 +4,7 @@ Baseline `c414213bf087235f05e952c9263b5fdcd9b9d4fb` passed the [combined main re
 
 ## Endpoint coverage
 
-All paths below use the existing FastAPI prefix `/api/v1` unless marked otherwise. Phase 1 allows only verified legacy owners on legacy branch paths. A mapped default branch additionally requires a current organization OWNER membership. New discovery allows an organization owner to list that organization's branches. The role policy is exercised in synthetic fixtures without exposing staff access. No endpoint accepts a client role.
+All paths below use the existing FastAPI prefix `/api/v1` unless marked otherwise. During compatibility, effective ownership of a mapped organization requires both its current organization OWNER membership and a current legacy OWNER membership on its mapped default branch. Either removal revokes discovery and legacy access on the next request, including with an existing session, and leaves ownership of unrelated organizations intact. A fully authorized owner can discover all branches in that organization. The role policy is exercised in synthetic fixtures without exposing staff access. No endpoint accepts a client role.
 
 | Route or route group | Authorization in first slice | Activation decision and coverage |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ All paths below use the existing FastAPI prefix `/api/v1` unless marked otherwis
 | Login, password reset and completion, invite completion | Existing identity, rate limits and single-use credentials | Existing owner provisioning only; no staff invites |
 | Logout | Active session; revokes submitted bearer | Session tests |
 | `/auth/businesses` | Same legacy owner policy as business endpoints | Deny revoked mapped owners; unchanged response shape |
-| `/auth/organizations`, `/organizations/{org}/branches` | Active organization owner; database-derived organization and branches | No cross-organization disclosure; no staff discovery |
+| `/auth/organizations`, `/organizations/{org}/branches` | Effective ownership requires both owner records on the mapped default branch | Revocation of either grant denies disclosure; no staff discovery |
 | Business customer create, sale create, repayment create, expense create | Legacy owner; resolve inside writer transaction | Future manager/cashier ordinary writes only on assigned branch; deny legacy staff |
 | Business debt adjustment and sale reversal create | Legacy owner; resolve inside writer transaction | Retain owner-only and confirmed financial rules |
 | Business customer list, balance, repayment list, adjustments list, statement; expense list and summary; reversal list; daily report; transaction lookup; receipts | Legacy owner; object queries stay branch-scoped | Separate role capabilities before any staff API exposure; receipt, lookup, and Lagos report regression |
@@ -29,4 +29,6 @@ All paths below use the existing FastAPI prefix `/api/v1` unless marked otherwis
 
 Each PR runs the full release gate and synthetic authorization, receipts, Lagos reporting, recovery and account lifecycle regressions. Staff access, branch-switching UI, consolidated reporting, entitlements and payment processing remain gated. DigitalOcean is paused and real trader onboarding is NO-GO.
 
-An unmigrated database, or a business newly provisioned by the legacy owner flow without a mapping, still uses the legacy owner row. A partly present version-one schema fails closed. Version-one metadata is read-only to the application. Before activation, require complete coverage of migrated branch mappings and prevent a missing mapping from falling back to legacy authorization. Read-only legacy handlers that authorize before taking their ledger snapshot also require a revocation-race review before staff activation.
+The application pins `LegacyScope.COMPATIBILITY`. An unmigrated database, or a business without a mapping after legacy provisioning, can use its verified legacy OWNER membership. An unmapped business is excluded from organization discovery. A partly present version-one schema fails closed in both policy modes. Version-one metadata is read-only to the application.
+
+The resolver requires each caller to select its legacy scope explicitly. `LegacyScope.MAPPED_ONLY` is tested as the future activation boundary and rejects unmapped businesses even when a legacy OWNER grant exists. It continues to require both grants on mapped default branches and never authorizes a non-default branch through a legacy URL. This mode is an internal policy, with no deployment toggle or staff activation in this slice. Before activation, verify complete mappings, make provisioning atomic with mapping creation, reconcile ownership drift, and switch all relevant entry points to the mapped-only policy. Read-only legacy handlers that authorize before taking their ledger snapshot also require a revocation-race review before staff activation.

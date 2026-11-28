@@ -1,12 +1,13 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from app.api.main import create_app
 from app.db.migrations import migrate_legacy_database
-from app.services.authorization import require_branch_permission
+from app.services.authorization import LegacyScope, require_branch_permission
 from app.services.telemetry import StagingLedger
 
 
@@ -43,6 +44,8 @@ class TestOrganizationAuthorization(unittest.TestCase):
             # This cashier can separately be an organization owner elsewhere.
             db.execute("INSERT INTO organization_memberships VALUES (?, ?, 'OWNER')",
                        (self.other_org, self.staff["CASHIER"]["user_id"]))
+            db.execute("INSERT INTO memberships VALUES (?, ?, 'OWNER')",
+                       (self.staff["CASHIER"]["user_id"], self.other_business))
         self.app = create_app(self.path)
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
@@ -69,16 +72,55 @@ class TestOrganizationAuthorization(unittest.TestCase):
         self.assertIn(self.other_org, [entry["id"] for entry in result])
         self.assertEqual(self.request(cashier, "GET", f"/organizations/{self.org}/branches").status_code, 403)
 
+    def test_discovery_and_legacy_access_require_both_owner_records(self):
+        account, token = self.owner
+        user = account["user_id"]
+        with self.ledger.connect() as db:
+            db.execute("INSERT INTO memberships VALUES (?, ?, 'OWNER')", (user, self.other_business))
+            db.execute("INSERT INTO organization_memberships VALUES (?, ?, 'OWNER')", (self.other_org, user))
+
+        for table, scope_column, scope_id, values in (
+            ("memberships", "business_id", self.business, (user, self.business)),
+            ("organization_memberships", "organization_id", self.org, (self.org, user)),
+        ):
+            with self.subTest(revoked_table=table):
+                self.assertEqual({entry["id"] for entry in self.request(token, "GET", "/auth/organizations").json()},
+                                 {self.org, self.other_org})
+                self.assertEqual(self.request(token, "GET", f"/organizations/{self.org}/branches").status_code, 200)
+                with self.ledger.connect() as db:
+                    db.execute(f"DELETE FROM {table} WHERE {scope_column} = ? AND user_id = ?", (scope_id, user))
+                self.assertEqual([entry["id"] for entry in self.request(token, "GET", "/auth/organizations").json()],
+                                 [self.other_org])
+                self.assertEqual(self.request(token, "GET", f"/organizations/{self.org}/branches").status_code, 403)
+                self.assertEqual(self.request(token, "GET", f"/organizations/{self.other_org}/branches").status_code, 200)
+                self.assertEqual(self.request(token, "GET", f"/businesses/{self.business}/customers").status_code, 403)
+                self.assertEqual([entry["id"] for entry in self.request(token, "GET", "/auth/businesses").json()],
+                                 [self.other_business])
+                with self.ledger.connect() as db:
+                    db.execute(f"INSERT INTO {table} VALUES (?, ?, 'OWNER')", values)
+
     def test_legacy_provisioning_after_migration_and_partial_schema(self):
         registered, token = self.register("unmapped")
         business = registered["business_id"]
         self.assertEqual(self.request(token, "GET", "/auth/organizations").json(), [])
         self.assertEqual(self.request(token, "POST", f"/businesses/{business}/customers",
                                       json={"name": "Synthetic customer"}).status_code, 201)
+        self.assertEqual([entry["id"] for entry in self.request(token, "GET", "/auth/businesses").json()], [business])
+        with patch.object(StagingLedger, "legacy_scope", LegacyScope.MAPPED_ONLY):
+            self.assertEqual(self.request(token, "GET", "/auth/businesses").json(), [])
+            self.assertEqual(self.request(token, "POST", f"/businesses/{business}/customers",
+                                          json={"name": "Blocked customer"}).status_code, 403)
+            owner = self.owner[1]
+            self.assertEqual(self.request(owner, "GET", f"/businesses/{self.business}/customers").status_code, 200)
+            self.assertEqual(self.request(owner, "GET", f"/businesses/{self.other_business}/customers").status_code, 403)
+            self.assertEqual(self.request(owner, "GET", f"/businesses/{self.branch}/customers").status_code, 403)
         with self.ledger.connect() as db:
             db.execute("DROP TABLE branch_assignments")
-        self.assertEqual(self.request(token, "POST", f"/businesses/{business}/customers",
-                                      json={"name": "Blocked customer"}).status_code, 403)
+        for mode in LegacyScope:
+            with self.subTest(mode=mode), patch.object(StagingLedger, "legacy_scope", mode):
+                self.assertEqual(self.request(token, "POST", f"/businesses/{business}/customers",
+                                              json={"name": "Blocked customer"}).status_code, 403)
+                self.assertEqual(self.request(self.owner[1], "GET", "/auth/organizations").status_code, 403)
 
     def test_role_matrix_wrong_pairs_and_live_revocation(self):
         with self.ledger.connect() as db:

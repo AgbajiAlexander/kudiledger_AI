@@ -6,11 +6,16 @@ import time
 from uuid import uuid4
 
 from app.db.repayments import RepaymentLedger
-from app.services.authorization import active_user, has_scope_schema, legacy_owner, organization_owner
+from app.services.authorization import (
+    LegacyScope, active_user, legacy_owner, organization_owner, owned_organizations,
+)
 
 
 class AccountLedger(RepaymentLedger):
     """Local identity and business-scoped ledger operations."""
+
+    # Future rollout must explicitly opt out of unmapped legacy fallback.
+    legacy_scope = LegacyScope.COMPATIBILITY
 
     def initialize(self):
         super().initialize()
@@ -166,7 +171,7 @@ class AccountLedger(RepaymentLedger):
         with self._using_connection(_db) as db:
             if _db is None:
                 db.execute("BEGIN")
-            return legacy_owner(db, active_user(db, token), business_id)
+            return legacy_owner(db, active_user(db, token), business_id, scope=self.legacy_scope)
 
     def is_active_session(self, token):
         """Check that a login token exists and has not expired."""
@@ -260,7 +265,7 @@ class AccountLedger(RepaymentLedger):
             businesses = []
             for row in rows:
                 try:
-                    legacy_owner(db, user_id, row["id"])
+                    legacy_owner(db, user_id, row["id"], scope=self.legacy_scope)
                 except PermissionError:
                     continue
                 businesses.append({"id": row["id"], "name": row["name"],
@@ -270,14 +275,7 @@ class AccountLedger(RepaymentLedger):
     def list_my_organizations(self, token):
         with self.connect() as db:
             db.execute("BEGIN")
-            user_id = active_user(db, token)
-            if not has_scope_schema(db):
-                return []
-            return [dict(row) for row in db.execute(
-                """SELECT o.id, o.name FROM organizations o JOIN organization_memberships m
-                   ON m.organization_id = o.id
-                   WHERE m.user_id = ? AND m.role = 'OWNER' ORDER BY o.name, o.id""", (user_id,),
-            )]
+            return [dict(row) for row in owned_organizations(db, active_user(db, token))]
 
     def list_organization_branches(self, token, organization_id):
         with self.connect() as db:

@@ -2,6 +2,12 @@
 
 import hashlib
 import time
+from enum import Enum
+
+
+class LegacyScope(Enum):
+    COMPATIBILITY = "compatibility"
+    MAPPED_ONLY = "mapped_only"
 
 
 ROLE_PERMISSIONS = {
@@ -40,7 +46,7 @@ def has_scope_schema(db):
     return True
 
 
-def legacy_owner(db, user_id, branch_id):
+def legacy_owner(db, user_id, branch_id, *, scope):
     row = db.execute(
         "SELECT role, user_id FROM memberships WHERE user_id = ? AND business_id = ? AND role = 'OWNER'",
         (user_id, branch_id),
@@ -55,15 +61,28 @@ def legacy_owner(db, user_id, branch_id):
             if not mapping["is_default"]:
                 raise PermissionError("Access denied for this business")
             require_branch_permission(db, user_id, mapping["organization_id"], branch_id, "manage")
-    return row
+            return row
+    if scope is LegacyScope.COMPATIBILITY:
+        return row
+    raise PermissionError("Access denied for this business")
+
+
+def owned_organizations(db, user_id, organization_id=None):
+    if not has_scope_schema(db):
+        return []
+    return db.execute(
+        """SELECT o.id, o.name FROM organizations o
+           JOIN organization_memberships m ON m.organization_id = o.id
+           JOIN branches b ON b.organization_id = o.id AND b.is_default = 1
+           JOIN memberships legacy ON legacy.business_id = b.id AND legacy.user_id = m.user_id
+           WHERE m.user_id = ? AND m.role = 'OWNER' AND legacy.role = 'OWNER'
+                 AND (? IS NULL OR o.id = ?)
+           ORDER BY o.name, o.id""", (user_id, organization_id, organization_id),
+    ).fetchall()
 
 
 def organization_owner(db, user_id, organization_id):
-    if not has_scope_schema(db) or not db.execute(
-        """SELECT 1 FROM organization_memberships
-           WHERE organization_id = ? AND user_id = ? AND role = 'OWNER'""",
-        (organization_id, user_id),
-    ).fetchone():
+    if not organization_id or not owned_organizations(db, user_id, organization_id):
         raise PermissionError("Access denied for this organization")
 
 
