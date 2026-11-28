@@ -43,6 +43,10 @@ class StaffBranchGrant(BaseModel):
     role: Literal["MANAGER", "CASHIER", "ACCOUNTANT"]
 
 
+class StaffRoleChange(BaseModel):
+    role: Literal["MANAGER", "CASHIER", "ACCOUNTANT"]
+
+
 class StaffInvitationRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     branches: list[StaffBranchGrant] = Field(min_length=1, max_length=50)
@@ -382,6 +386,64 @@ def create_app(database_path=None, *, require_https=None, account_mail=None):
         require_staff_capture()
         limit_client(request, "staff-invitation-revoke", 30)
         run_protected(lambda: ledger.revoke_staff_invitation(token, organization_id, invitation_id))
+        return Response(status_code=204)
+
+    staff_path = "/api/v1/organizations/{organization_id}/staff"
+    staff_member = staff_path + "/{user_id}"
+    staff_branch = staff_member + "/branches/{branch_id}"
+
+    @app.get(staff_path)
+    def list_organization_staff(
+        organization_id: str, response: Response, token: str = Depends(require_token),
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        return run_protected(lambda: ledger.list_organization_staff(token, organization_id))
+
+    @app.post(staff_member + "/branches", status_code=204)
+    def assign_staff_branch(
+        organization_id: str, user_id: str, payload: StaffBranchGrant,
+        request: Request, token: str = Depends(require_token),
+    ):
+        limit_client(request, "staff-permission-write", 60)
+        run_protected(lambda: ledger.assign_staff_branch(
+            token, organization_id, user_id, payload.branch_id, payload.role,
+        ))
+        return Response(status_code=204)
+
+    @app.patch(staff_branch, status_code=204)
+    def change_staff_branch_role(
+        organization_id: str, user_id: str, branch_id: str, payload: StaffRoleChange,
+        request: Request, token: str = Depends(require_token),
+    ):
+        limit_client(request, "staff-permission-write", 60)
+        run_protected(lambda: ledger.change_staff_branch_role(token, organization_id, user_id, branch_id, payload.role))
+        return Response(status_code=204)
+
+    @app.delete(staff_branch, status_code=204)
+    def revoke_staff_branch(
+        organization_id: str, user_id: str, branch_id: str, request: Request, token: str = Depends(require_token),
+    ):
+        limit_client(request, "staff-permission-write", 60)
+        run_protected(lambda: ledger.revoke_staff_branch(token, organization_id, user_id, branch_id))
+        return Response(status_code=204)
+
+    @app.post(staff_branch + "/reassign", status_code=204)
+    def reassign_staff_branch(
+        organization_id: str, user_id: str, branch_id: str, payload: StaffBranchGrant,
+        request: Request, token: str = Depends(require_token),
+    ):
+        limit_client(request, "staff-permission-write", 60)
+        run_protected(lambda: ledger.reassign_staff_branch(
+            token, organization_id, user_id, branch_id, payload.branch_id, payload.role,
+        ))
+        return Response(status_code=204)
+
+    @app.delete(staff_member, status_code=204)
+    def revoke_staff_membership(
+        organization_id: str, user_id: str, request: Request, token: str = Depends(require_token),
+    ):
+        limit_client(request, "staff-permission-write", 60)
+        run_protected(lambda: ledger.revoke_staff_membership(token, organization_id, user_id))
         return Response(status_code=204)
 
     @app.post("/api/v1/auth/logout")
