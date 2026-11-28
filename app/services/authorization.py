@@ -90,7 +90,13 @@ def require_branch_permission(db, user_id, organization_id, branch_id, permissio
     if not has_scope_schema(db):
         raise PermissionError("Access denied for this branch")
     row = db.execute(
-        """SELECT CASE WHEN m.role = 'OWNER' THEN 'OWNER'
+        """SELECT CASE WHEN m.role = 'OWNER' AND EXISTS (
+                            SELECT 1 FROM branches default_branch JOIN memberships legacy
+                              ON legacy.business_id = default_branch.id
+                            WHERE default_branch.organization_id = b.organization_id
+                              AND default_branch.is_default = 1 AND legacy.user_id = m.user_id
+                              AND legacy.role = 'OWNER'
+                        ) THEN 'OWNER'
                         WHEN m.role = 'MEMBER' THEN a.role END AS role
            FROM branches b
            JOIN organization_memberships m ON m.organization_id = b.organization_id AND m.user_id = ?

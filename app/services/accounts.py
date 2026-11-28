@@ -3,11 +3,12 @@ import hmac
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
 from uuid import uuid4
 
 from app.db.repayments import RepaymentLedger
 from app.services.authorization import (
-    LegacyScope, active_user, legacy_owner, organization_owner, owned_organizations,
+    LegacyScope, active_user, has_scope_schema, legacy_owner, organization_owner, owned_organizations,
 )
 
 
@@ -101,7 +102,11 @@ class AccountLedger(RepaymentLedger):
         email = self.normalize_email(email)
         business_id = str(uuid4())
 
-        with self._using_connection(_db) as db:
+        with self._using_connection(_db, immediate=True) as db:
+            if self.legacy_scope is not LegacyScope.COMPATIBILITY and (
+                self.legacy_scope is not LegacyScope.MAPPED_ONLY or not has_scope_schema(db)
+            ):
+                raise PermissionError("Tenant provisioning unavailable")
             try:
                 db.execute(
                     "INSERT INTO businesses (id, name) VALUES (?, ?)",
@@ -116,12 +121,27 @@ class AccountLedger(RepaymentLedger):
                        VALUES (?, ?, 'OWNER')""",
                     (user_id, business_id),
                 )
+                if self.legacy_scope is LegacyScope.MAPPED_ONLY:
+                    organization_id = str(uuid4())
+                    db.execute("INSERT INTO organizations (id, name) VALUES (?, ?)",
+                               (organization_id, business_name.strip()))
+                    db.execute("INSERT INTO branches (id, organization_id, is_default) VALUES (?, ?, 1)",
+                               (business_id, organization_id))
+                    db.execute(
+                        "INSERT INTO organization_memberships (organization_id, user_id, role) VALUES (?, ?, 'OWNER')",
+                        (organization_id, user_id),
+                    )
             except sqlite3.IntegrityError as error:
                 raise ValueError(
                     "Account could not be registered"
                 ) from error
 
         return {"user_id": user_id, "business_id": business_id}
+
+    def create_business(self, name):
+        if self.legacy_scope is not LegacyScope.COMPATIBILITY:
+            raise PermissionError("Mapped businesses must be provisioned with an owner")
+        return super().create_business(name)
 
     def login(self, email, password):
         if not isinstance(email, str) or not isinstance(password, str):
@@ -166,6 +186,13 @@ class AccountLedger(RepaymentLedger):
 
     def _authorize(self, token, business_id, *, _db=None):
         return self._membership(token, business_id, _db=_db)["role"]
+
+    @contextmanager
+    def _authorized_read(self, token, business_id):
+        with self.connect() as db:
+            db.execute("BEGIN")
+            self._authorize(token, business_id, _db=db)
+            yield db
 
     def _membership(self, token, business_id, *, _db=None):
         with self._using_connection(_db) as db:
@@ -236,18 +263,12 @@ class AccountLedger(RepaymentLedger):
             )
 
     def get_balance(self, token, business_id, customer_id):
-        self._authorize(token, business_id)
-
-        return super().customer_balance(
-            business_id, customer_id
-        )
+        with self._authorized_read(token, business_id) as db:
+            return super().customer_balance(business_id, customer_id, _db=db)
 
     def get_repayments(self, token, business_id, customer_id):
-        self._authorize(token, business_id)
-
-        return super().list_repayments(
-            business_id, customer_id
-        )
+        with self._authorized_read(token, business_id) as db:
+            return super().list_repayments(business_id, customer_id, _db=db)
 
     def list_my_businesses(self, token):
         """Return businesses belonging to an active session."""

@@ -6,9 +6,7 @@ class StatementLedger(ReversalLedger):
     """Produce a customer debt statement from immutable records."""
 
     def customer_statement(self, token, business_id, customer_id):
-        self._authorize(token, business_id)
-
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
             # Check customer ownership through the existing ledger.
             authoritative_balance = self._balance_kobo(
                 db, business_id, customer_id
@@ -100,9 +98,7 @@ class StatementLedger(ReversalLedger):
 
     def list_business_customers(self, token, business_id):
         """Return customers with their current debt balances."""
-        self._authorize(token, business_id)
-
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
             rows = db.execute(
                 """SELECT id, name
                    FROM customers

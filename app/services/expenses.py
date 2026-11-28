@@ -101,9 +101,7 @@ class ExpenseLedger(StatementLedger):
         return expense_id
 
     def list_expenses(self, token, business_id):
-        self._authorize(token, business_id)
-
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
             rows = db.execute(
                 """SELECT id, expense_reference, category,
                           description, amount_kobo, created_at
@@ -127,9 +125,7 @@ class ExpenseLedger(StatementLedger):
         ]
 
     def expense_summary(self, token, business_id):
-        self._authorize(token, business_id)
-
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
             row = db.execute(
                 """SELECT COUNT(*) AS expense_count,
                           COALESCE(SUM(amount_kobo), 0) AS total_kobo
