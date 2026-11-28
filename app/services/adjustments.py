@@ -113,6 +113,7 @@ class AdjustmentLedger(AccountLedger):
 
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            self._authorize(token, business_id, _db=db)
 
             current = self._balance_kobo(
                 db, business_id, customer_id

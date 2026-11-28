@@ -75,7 +75,9 @@ class ExpenseLedger(StatementLedger):
 
         expense_id = str(uuid4())
 
-        with self._using_connection(_db) as db:
+        with self._using_connection(_db, immediate=True) as db:
+            if _db is None:
+                self._authorize(token, business_id, _db=db)
             try:
                 db.execute(
                     """INSERT INTO expenses
