@@ -84,8 +84,8 @@ class RepaymentLedger(Ledger):
 
         return sales - repayments
 
-    def customer_balance(self, business_id, customer_id):
-        with self.connect() as db:
+    def customer_balance(self, business_id, customer_id, *, _db=None):
+        with self._using_connection(_db) as db:
             balance = self._balance_kobo(
                 db, business_id, customer_id
             )
@@ -163,8 +163,8 @@ class RepaymentLedger(Ledger):
 
         return repayment_id
 
-    def list_repayments(self, business_id, customer_id):
-        with self.connect() as db:
+    def list_repayments(self, business_id, customer_id, *, _db=None):
+        with self._using_connection(_db) as db:
             self._balance_kobo(
                 db, business_id, customer_id
             )

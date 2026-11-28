@@ -143,9 +143,7 @@ class AdjustmentLedger(AccountLedger):
         return adjustment_id
 
     def get_adjustments(self, token, business_id, customer_id):
-        self._authorize(token, business_id)
-
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
             self._balance_kobo(
                 db, business_id, customer_id
             )

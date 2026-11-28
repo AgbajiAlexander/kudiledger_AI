@@ -1,0 +1,25 @@
+{
+  "counts": {
+    "branch_assignments": 0,
+    "branches": 3,
+    "businesses": 3,
+    "organizations": 2
+  },
+  "issues": {
+    "conflicting_branches": 0,
+    "cross_organization_assignments": 0,
+    "duplicate_branch_ids": 0,
+    "foreign_key_violations": 0,
+    "legacy_owner_drift": 0,
+    "legacy_owners_on_nondefault_branches": 0,
+    "nonstaff_assignments": 0,
+    "organization_owner_drift": 0,
+    "organizations_without_effective_owner": 0,
+    "orphaned_assignments": 0,
+    "unmapped_businesses": 0,
+    "wrong_default_counts": 0
+  },
+  "passed": true,
+  "schema_ready": true,
+  "sqlite_integrity": true
+}

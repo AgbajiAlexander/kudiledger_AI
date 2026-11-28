@@ -12,40 +12,35 @@ class ReportLedger(ExpenseLedger):
     """Daily activity summary using existing financial records."""
 
     def daily_summary(self, token, business_id, report_date):
-        self._authorize(token, business_id)
+        with self._authorized_read(token, business_id) as db:
+            if not isinstance(report_date, str):
+                raise ValueError("Report date must use YYYY-MM-DD")
 
-        if not isinstance(report_date, str):
-            raise ValueError("Report date must use YYYY-MM-DD")
+            try:
+                parsed = date.fromisoformat(report_date)
+            except ValueError:
+                raise ValueError(
+                    "Invalid report date; use YYYY-MM-DD"
+                ) from None
 
-        try:
-            parsed = date.fromisoformat(report_date)
-        except ValueError:
-            raise ValueError(
-                "Invalid report date; use YYYY-MM-DD"
-            ) from None
+            if parsed.isoformat() != report_date:
+                raise ValueError("Report date must use YYYY-MM-DD")
 
-        if parsed.isoformat() != report_date:
-            raise ValueError("Report date must use YYYY-MM-DD")
+            try:
+                start_utc = datetime.combine(
+                    parsed, time.min, LAGOS
+                ).astimezone(timezone.utc)
+                end_utc = datetime.combine(
+                    parsed + timedelta(days=1), time.min, LAGOS
+                ).astimezone(timezone.utc)
+            except OverflowError:
+                raise ValueError("Report date exceeds supported range") from None
 
-        try:
-            start_utc = datetime.combine(
-                parsed, time.min, LAGOS
-            ).astimezone(timezone.utc)
-            end_utc = datetime.combine(
-                parsed + timedelta(days=1), time.min, LAGOS
-            ).astimezone(timezone.utc)
-        except OverflowError:
-            raise ValueError("Report date exceeds supported range") from None
-
-        # Match the UTC text format written by SQLite CURRENT_TIMESTAMP.
-        bounds = tuple(
-            f"{instant.date().isoformat()} {instant.time().isoformat(timespec='seconds')}"
-            for instant in (start_utc, end_utc)
-        )
-
-        with self.connect() as db:
-            # Use one snapshot for every figure in the report.
-            db.execute("BEGIN")
+            # Match the UTC text format written by SQLite CURRENT_TIMESTAMP.
+            bounds = tuple(
+                f"{instant.date().isoformat()} {instant.time().isoformat(timespec='seconds')}"
+                for instant in (start_utc, end_utc)
+            )
             sales = db.execute(
                 """SELECT COUNT(*) AS count,
                           COALESCE(SUM(total_kobo), 0) AS total,
@@ -157,14 +152,13 @@ class ReportLedger(ExpenseLedger):
 
     def lookup_transaction(self, token, business_id, kind, reference):
         """Look up an existing business transaction by reference."""
-        self._authorize(token, business_id)
-        if kind not in ("sale", "repayment", "expense"):
-            raise ValueError("Invalid transaction type")
-        if not isinstance(reference, str) or not 1 <= len(reference.strip()) <= 100:
-            raise ValueError("Invalid transaction reference")
+        with self._authorized_read(token, business_id) as db:
+            if kind not in ("sale", "repayment", "expense"):
+                raise ValueError("Invalid transaction type")
+            if not isinstance(reference, str) or not 1 <= len(reference.strip()) <= 100:
+                raise ValueError("Invalid transaction reference")
 
-        reference = reference.strip()
-        with self.connect() as db:
+            reference = reference.strip()
             row = self._find_transaction(db, business_id, kind, reference)
 
         if row is None:
@@ -206,14 +200,13 @@ class ReportLedger(ExpenseLedger):
 
     def transaction_receipt(self, token, business_id, kind, transaction_id, reference):
         """Read a receipt for a committed transaction owned by this business."""
-        self._authorize(token, business_id)
-        if (transaction_id is None) == (reference is None):
-            raise ValueError("Provide either transaction_id or reference")
-        by_id = transaction_id is not None
-        identifier = (transaction_id if by_id else reference).strip()
-        if not 1 <= len(identifier) <= 100:
-            raise ValueError("Invalid transaction identifier")
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
+            if (transaction_id is None) == (reference is None):
+                raise ValueError("Provide either transaction_id or reference")
+            by_id = transaction_id is not None
+            identifier = (transaction_id if by_id else reference).strip()
+            if not 1 <= len(identifier) <= 100:
+                raise ValueError("Invalid transaction identifier")
             row = self._find_transaction(db, business_id, kind, identifier, by_id=by_id)
         if row is None:
             return None

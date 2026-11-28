@@ -172,9 +172,7 @@ class ReversalLedger(AdjustmentLedger):
         return reversal_id
 
     def list_sale_reversals(self, token, business_id):
-        self._authorize(token, business_id)
-
-        with self.connect() as db:
+        with self._authorized_read(token, business_id) as db:
             rows = db.execute(
                 """SELECT r.id, r.sale_id,
                           r.reversal_reference, r.amount_kobo,
