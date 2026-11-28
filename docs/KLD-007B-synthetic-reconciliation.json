@@ -1,0 +1,122 @@
+{
+  "after": {
+    "audits": {
+      "account_security_audit": 2,
+      "recovery_operator_audit": 1
+    },
+    "financial": {
+      "debt_adjustments": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "delta_kobo": -1
+        }
+      },
+      "expenses": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "amount_kobo": 101
+        }
+      },
+      "repayments": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "amount_kobo": 501
+        }
+      },
+      "sale_reversals": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "amount_kobo": 701
+        }
+      },
+      "sales": {
+        "records": 3,
+        "scoped_references": 3,
+        "totals_kobo": {
+          "paid_kobo": 4002,
+          "total_kobo": 20703
+        }
+      }
+    },
+    "legacy_businesses": 2,
+    "mapped_branches": 2,
+    "organizations": 2,
+    "recovery": {
+      "by_stage": {
+        "rejected": 1,
+        "saved": 1,
+        "verified": 1
+      },
+      "records": 3
+    }
+  },
+  "before": {
+    "audits": {
+      "account_security_audit": 2,
+      "recovery_operator_audit": 1
+    },
+    "financial": {
+      "debt_adjustments": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "delta_kobo": -1
+        }
+      },
+      "expenses": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "amount_kobo": 101
+        }
+      },
+      "repayments": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "amount_kobo": 501
+        }
+      },
+      "sale_reversals": {
+        "records": 1,
+        "scoped_references": 1,
+        "totals_kobo": {
+          "amount_kobo": 701
+        }
+      },
+      "sales": {
+        "records": 3,
+        "scoped_references": 3,
+        "totals_kobo": {
+          "paid_kobo": 4002,
+          "total_kobo": 20703
+        }
+      }
+    },
+    "legacy_businesses": 2,
+    "recovery": {
+      "by_stage": {
+        "rejected": 1,
+        "saved": 1,
+        "verified": 1
+      },
+      "records": 3
+    }
+  },
+  "invariants": {
+    "legacy_aggregates_unchanged": true,
+    "legacy_rows_unchanged": true,
+    "legacy_schema_unchanged": true,
+    "mapped_ownership_verified": true,
+    "pre_is_unmigrated": true,
+    "sqlite_integrity_verified": true
+  },
+  "passed": true,
+  "schema_versions": [
+    1
+  ]
+}
